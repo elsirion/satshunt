@@ -1,11 +1,34 @@
-.direnv/
+# Rust
 /target
-/multisend.db
+Cargo.lock
 
+# Environment
+.env
+.direnv/
 
+# Database
+*.db
+*.db-shm
+*.db-wal
 
-# Added by cargo
-#
-# already existing elements were commented out
+# Lightning data
+/lightning_data
 
-#/target
+# Uploads
+/uploads
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.webp
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
