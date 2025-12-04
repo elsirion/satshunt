@@ -1,0 +1,230 @@
+use crate::models::DonationPool;
+use maud::{html, Markup, PreEscaped};
+
+pub fn donate(pool: &DonationPool) -> Markup {
+    html! {
+        div class="max-w-2xl mx-auto" {
+            h1 class="text-4xl font-bold mb-8 text-yellow-400" { "💰 Donate to the Pool" }
+
+            // Current pool stats
+            div class="bg-slate-800 rounded-lg p-8 mb-8 border border-slate-700" {
+                h2 class="text-2xl font-bold mb-4 text-yellow-400" { "Current Donation Pool" }
+                div class="text-center" {
+                    div class="text-6xl font-bold text-yellow-400 mb-2" {
+                        (pool.total_sats) " ⚡"
+                    }
+                    p class="text-slate-400" { "Total sats available for refills" }
+                }
+            }
+
+            // Why donate section
+            div class="bg-slate-800 rounded-lg p-8 mb-8 border border-slate-700" {
+                h2 class="text-2xl font-bold mb-4 text-yellow-400" { "Why Donate?" }
+                ul class="space-y-3 text-slate-300" {
+                    li class="flex items-start" {
+                        span class="text-yellow-400 mr-2" { "⚡" }
+                        "Keeps treasure locations refilling automatically"
+                    }
+                    li class="flex items-start" {
+                        span class="text-yellow-400 mr-2" { "⚡" }
+                        "Enables new treasure hunters to find sats"
+                    }
+                    li class="flex items-start" {
+                        span class="text-yellow-400 mr-2" { "⚡" }
+                        "Supports the community treasure hunt game"
+                    }
+                    li class="flex items-start" {
+                        span class="text-yellow-400 mr-2" { "⚡" }
+                        "Locations refill at 100 sats per hour from this pool"
+                    }
+                }
+            }
+
+            // Donation form
+            div class="bg-slate-800 rounded-lg p-8 border border-slate-700" {
+                h2 class="text-2xl font-bold mb-6 text-yellow-400" { "Make a Donation" }
+
+                div id="donationContainer" {
+                    // Amount selection
+                    div id="amountSelection" {
+                        label class="block mb-4 text-sm font-medium text-slate-200" {
+                            "Choose donation amount:"
+                        }
+                        div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4" {
+                            (amount_button("1000", "1K sats"))
+                            (amount_button("5000", "5K sats"))
+                            (amount_button("10000", "10K sats"))
+                            (amount_button("50000", "50K sats"))
+                        }
+                        div class="grid grid-cols-2 md:grid-cols-4 gap-4" {
+                            (amount_button("100000", "100K sats"))
+                            (amount_button("500000", "500K sats"))
+                            (amount_button("1000000", "1M sats"))
+                            (amount_button("custom", "Custom"))
+                        }
+
+                        // Custom amount
+                        div id="customAmountDiv" class="hidden mt-4" {
+                            label for="customAmount" class="block mb-2 text-sm font-medium text-slate-200" {
+                                "Custom Amount (sats)"
+                            }
+                            div class="flex gap-2" {
+                                input type="number" id="customAmount" min="1" step="1"
+                                    class="flex-1 bg-slate-700 border border-slate-600 text-slate-200 text-sm rounded-lg focus:ring-yellow-500 focus:border-yellow-500 p-2.5"
+                                    placeholder="Enter amount in satoshis";
+                                button type="button" id="customSubmit"
+                                    class="px-4 py-2 bg-yellow-500 hover:bg-yellow-600 text-slate-900 font-semibold rounded-lg transition" {
+                                    "Create Invoice"
+                                }
+                            }
+                        }
+                    }
+
+                    // Invoice display area (will be populated by HTMX)
+                    div id="invoiceArea" class="hidden mt-6" {}
+
+                    // Payment status area (will be populated by HTMX when payment received)
+                    div id="paymentStatus" {}
+                }
+            }
+
+            // How it works
+            div class="bg-slate-800 rounded-lg p-8 mt-8 border border-slate-700" {
+                h2 class="text-2xl font-bold mb-4 text-yellow-400" { "How Donations Work" }
+                div class="space-y-4 text-slate-300" {
+                    p {
+                        "All donations go into a shared pool that automatically refills treasure locations. "
+                        "Each location refills at a rate of 100 sats per hour, up to its maximum capacity."
+                    }
+                    p {
+                        "When treasure hunters scan NFC tags and claim sats, the location balance decreases. "
+                        "The refill system ensures locations stay active and hunters can keep finding treasure!"
+                    }
+                    p class="text-yellow-400 font-semibold" {
+                        "Your donation keeps the treasure hunt alive for everyone!"
+                    }
+                }
+            }
+        }
+
+        // JavaScript for amount selection
+        (PreEscaped(r#"
+        <script>
+            let selectedAmount = 0;
+
+            // Amount button click handlers
+            document.querySelectorAll('.amount-btn').forEach(button => {
+                button.addEventListener('click', async function() {
+                    const amount = this.dataset.amount;
+
+                    if (amount === 'custom') {
+                        // Show custom input
+                        document.getElementById('customAmountDiv').classList.remove('hidden');
+                        selectedAmount = 0;
+                    } else {
+                        // Generate invoice immediately
+                        selectedAmount = parseInt(amount);
+                        await generateInvoice(selectedAmount);
+                    }
+                });
+            });
+
+            // Custom amount submit
+            document.getElementById('customSubmit').addEventListener('click', async function() {
+                const customAmount = parseInt(document.getElementById('customAmount').value);
+                if (customAmount > 0) {
+                    selectedAmount = customAmount;
+                    await generateInvoice(selectedAmount);
+                } else {
+                    alert('Please enter a valid amount');
+                }
+            });
+
+            async function generateInvoice(amount) {
+                try {
+                    // Hide amount selection
+                    document.getElementById('amountSelection').classList.add('hidden');
+
+                    // Show loading
+                    document.getElementById('invoiceArea').innerHTML = `
+                        <div class="text-center py-8">
+                            <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-yellow-400 mx-auto mb-4"></div>
+                            <p class="text-slate-300">Generating invoice...</p>
+                        </div>
+                    `;
+                    document.getElementById('invoiceArea').classList.remove('hidden');
+
+                    // Generate invoice
+                    const response = await fetch('/api/donate/invoice', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ amount: amount })
+                    });
+
+                    if (!response.ok) {
+                        throw new Error('Failed to generate invoice');
+                    }
+
+                    const data = await response.json();
+
+                    // Display invoice and QR code
+                    document.getElementById('invoiceArea').innerHTML = `
+                        <div class="bg-slate-700 rounded-lg p-6">
+                            <div class="text-center mb-4">
+                                <p class="text-2xl font-bold text-yellow-400 mb-2">${amount.toLocaleString()} sats</p>
+                                <p class="text-sm text-slate-400">Scan with your Lightning wallet</p>
+                            </div>
+                            <div class="bg-white p-4 rounded-lg inline-block mx-auto block">
+                                <img src="${data.qr_code}" alt="Invoice QR Code" class="w-64 h-64 mx-auto">
+                            </div>
+                            <details class="mt-4">
+                                <summary class="cursor-pointer text-slate-400 hover:text-slate-300 text-sm">
+                                    Show invoice string
+                                </summary>
+                                <div class="mt-2 p-3 bg-slate-800 rounded text-xs font-mono break-all text-slate-300">
+                                    ${data.invoice}
+                                </div>
+                            </details>
+                            <div class="mt-6 bg-blue-900 border border-blue-700 text-blue-200 px-4 py-3 rounded-lg">
+                                <p class="text-sm flex items-center">
+                                    <span class="animate-pulse mr-2">⏳</span>
+                                    Waiting for payment...
+                                </p>
+                            </div>
+                        </div>
+                    `;
+
+                    // Start waiting for payment with HTMX
+                    const paymentStatusDiv = document.getElementById('paymentStatus');
+                    paymentStatusDiv.setAttribute('hx-get', `/api/donate/wait/${data.invoice}:${amount}`);
+                    paymentStatusDiv.setAttribute('hx-trigger', 'load');
+                    paymentStatusDiv.setAttribute('hx-swap', 'innerHTML');
+                    htmx.process(paymentStatusDiv);
+
+                } catch (error) {
+                    console.error('Error:', error);
+                    document.getElementById('invoiceArea').innerHTML = `
+                        <div class="bg-red-900 border border-red-700 text-red-200 px-4 py-3 rounded-lg">
+                            <p class="font-semibold">Error</p>
+                            <p class="text-sm">${error.message}</p>
+                        </div>
+                    `;
+                    // Show amount selection again
+                    document.getElementById('amountSelection').classList.remove('hidden');
+                }
+            }
+        </script>
+        "#))
+    }
+}
+
+fn amount_button(amount: &str, label: &str) -> Markup {
+    html! {
+        button type="button" data-amount=(amount)
+            class="amount-btn px-4 py-3 bg-slate-700 hover:bg-slate-600 text-slate-200 font-semibold rounded-lg border border-slate-600 transition" {
+            (label)
+        }
+    }
+}

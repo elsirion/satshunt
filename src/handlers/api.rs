@@ -261,3 +261,124 @@ pub async fn get_stats(State(state): State<Arc<AppState>>) -> Result<Json<serde_
 
     Ok(Json(json!(stats)))
 }
+
+#[derive(serde::Deserialize)]
+pub struct DonationInvoiceRequest {
+    pub amount: i64,
+}
+
+/// Generate a Lightning invoice for donation
+pub async fn create_donation_invoice(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<DonationInvoiceRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    if payload.amount <= 0 {
+        tracing::error!("Invalid donation amount: {}", payload.amount);
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    tracing::info!("Creating invoice for donation of {} sats", payload.amount);
+
+    // Generate Lightning invoice
+    let description = format!("SatShunt donation: {} sats", payload.amount);
+    let invoice = state
+        .lightning
+        .create_invoice(payload.amount as u64, &description)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to create invoice: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    // Generate QR code
+    use qrcode::QrCode;
+    use image::Luma;
+
+    let qr_code = QrCode::new(&invoice).map_err(|e| {
+        tracing::error!("Failed to create QR code: {}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    let qr_image = qr_code.render::<Luma<u8>>().build();
+
+    // Convert to PNG bytes
+    let mut png_bytes = Vec::new();
+    use image::codecs::png::PngEncoder;
+    use image::{ImageEncoder, ExtendedColorType};
+
+    let encoder = PngEncoder::new(&mut png_bytes);
+    encoder
+        .write_image(
+            qr_image.as_raw(),
+            qr_image.width(),
+            qr_image.height(),
+            ExtendedColorType::L8,
+        )
+        .map_err(|e| {
+            tracing::error!("Failed to encode QR code as PNG: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    // Encode as base64
+    let qr_base64 = base64::encode(&png_bytes);
+
+    tracing::info!("Invoice created successfully");
+
+    Ok(Json(json!({
+        "invoice": invoice,
+        "qr_code": format!("data:image/png;base64,{}", qr_base64),
+        "amount": payload.amount
+    })))
+}
+
+/// Wait for invoice payment and update donation pool
+pub async fn wait_for_donation(
+    State(state): State<Arc<AppState>>,
+    Path(invoice_and_amount): Path<String>,
+) -> Result<axum::response::Html<String>, StatusCode> {
+    // Invoice format: {invoice_string}:{amount}
+    let parts: Vec<&str> = invoice_and_amount.split(':').collect();
+    if parts.len() != 2 {
+        tracing::error!("Invalid invoice format");
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let invoice = parts[0];
+    let amount: i64 = parts[1].parse().map_err(|_| {
+        tracing::error!("Invalid amount in path");
+        StatusCode::BAD_REQUEST
+    })?;
+
+    tracing::info!("Waiting for payment of {} sats invoice", amount);
+
+    // Wait for payment (this blocks until paid)
+    state.lightning.await_payment(invoice).await.map_err(|e| {
+        tracing::error!("Failed to await payment: {}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    tracing::info!("Payment received! Adding {} sats to donation pool", amount);
+
+    // Add to donation pool
+    let pool = state.db.add_to_donation_pool(amount).await.map_err(|e| {
+        tracing::error!("Failed to add to donation pool: {}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    tracing::info!("Donation pool updated. New total: {} sats", pool.total_sats);
+
+    // Return success HTML fragment for HTMX to swap in
+    let html = format!(
+        r#"<div id="paymentStatus" class="bg-green-900 border border-green-700 text-green-200 px-4 py-3 rounded-lg">
+            <p class="font-semibold">✓ Payment received!</p>
+            <p class="text-sm mt-1">Thank you for donating {} sats!</p>
+        </div>
+        <div class="text-center mt-4">
+            <p class="text-sm text-slate-400 mb-1">New Pool Total</p>
+            <p class="text-4xl font-bold text-yellow-400">{} ⚡</p>
+        </div>"#,
+        amount, pool.total_sats
+    );
+
+    Ok(axum::response::Html(html))
+}

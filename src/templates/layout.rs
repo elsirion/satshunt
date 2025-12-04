@@ -16,6 +16,9 @@ pub fn base(title: &str, content: Markup) -> Markup {
                 link href="https://cdn.jsdelivr.net/npm/flowbite@2.5.1/dist/flowbite.min.css" rel="stylesheet";
                 script src="https://cdn.jsdelivr.net/npm/flowbite@2.5.1/dist/flowbite.min.js" defer {}
 
+                // HTMX
+                script src="https://unpkg.com/htmx.org@1.9.10" {}
+
                 // Leaflet for maps
                 link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
                     integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
@@ -76,8 +79,13 @@ fn navbar() -> Markup {
                             }
                         }
                         li {
-                            a href="/locations/new" class="block py-2 px-3 text-yellow-400 rounded hover:bg-slate-700 md:hover:bg-transparent md:border-0 md:hover:text-yellow-300 md:p-0" {
+                            a href="/locations/new" class="block py-2 px-3 text-slate-200 rounded hover:bg-slate-700 md:hover:bg-transparent md:border-0 md:hover:text-yellow-400 md:p-0" {
                                 "Add Location"
+                            }
+                        }
+                        li {
+                            a href="/donate" class="block py-2 px-3 text-yellow-400 rounded hover:bg-slate-700 md:hover:bg-transparent md:border-0 md:hover:text-yellow-300 md:p-0" {
+                                "💰 Donate"
                             }
                         }
                     }

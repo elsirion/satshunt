@@ -49,7 +49,7 @@ async fn main() -> Result<()> {
     tracing::info!("Database initialized");
 
     // Initialize Lightning service
-    let lightning = lightning::LightningService::new()?;
+    let lightning = lightning::LightningService::new().await?;
     tracing::info!("Lightning service initialized");
 
     // Create app state
@@ -83,6 +83,7 @@ async fn main() -> Result<()> {
         .route("/locations/new", get(handlers::new_location_page))
         .route("/locations/:id", get(handlers::location_detail_page))
         .route("/setup/:write_token", get(handlers::nfc_setup_page))
+        .route("/donate", get(handlers::donate_page))
         // API routes
         .route("/api/locations", post(handlers::create_location))
         .route("/api/lnurlw/:location_id", get(handlers::lnurlw_endpoint))
@@ -91,6 +92,8 @@ async fn main() -> Result<()> {
             get(handlers::lnurlw_callback),
         )
         .route("/api/stats", get(handlers::get_stats))
+        .route("/api/donate/invoice", post(handlers::create_donation_invoice))
+        .route("/api/donate/wait/:invoice_and_amount", get(handlers::wait_for_donation))
         // Static files
         .nest_service("/uploads", ServeDir::new(upload_path))
         // State

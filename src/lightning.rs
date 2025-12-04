@@ -1,19 +1,17 @@
-use anyhow::{Result, bail};
+use anyhow::Result;
+use blitzi::{Blitzi, Amount};
 use serde::{Deserialize, Serialize};
 
 /// Lightning service for managing payments
-///
-/// Note: This uses a simplified LNURL-withdraw implementation
-/// The actual withdrawal is triggered when someone scans the NFC tag
-/// which contains a URL to our /api/lnurlw/{location_id} endpoint
 pub struct LightningService {
-    // In a full implementation, this would hold a Blitzi client
-    // For now, we'll use a simplified approach
+    client: Blitzi,
 }
 
 impl LightningService {
-    pub fn new() -> Result<Self> {
-        Ok(Self {})
+    pub async fn new() -> Result<Self> {
+        let client = Blitzi::new().await?;
+        tracing::info!("Blitzi Lightning client initialized");
+        Ok(Self { client })
     }
 
     /// Generate a unique secret for a location's LNURL-w
@@ -42,6 +40,26 @@ impl LightningService {
     pub async fn pay_invoice(&self, invoice: &str) -> Result<()> {
         // TODO: Implement actual payment with blitzi
         tracing::info!("Would pay invoice: {}", invoice);
+        Ok(())
+    }
+
+    /// Create a Lightning invoice for receiving payment
+    /// Returns the invoice as a string
+    pub async fn create_invoice(&self, amount_sats: u64, description: &str) -> Result<String> {
+        let amount = Amount::from_sats(amount_sats);
+        let invoice = self.client.lightning_invoice(amount, description).await?;
+        tracing::info!("Created invoice for {} sats: {}", amount_sats, description);
+        Ok(invoice.to_string())
+    }
+
+    /// Wait for an invoice to be paid
+    /// This blocks until the payment is received
+    pub async fn await_payment(&self, invoice: &str) -> Result<()> {
+        let invoice_obj = invoice.parse()
+            .map_err(|e| anyhow::anyhow!("Invalid invoice format: {}", e))?;
+
+        self.client.await_incoming_payment(&invoice_obj).await?;
+        tracing::info!("Payment received for invoice");
         Ok(())
     }
 }

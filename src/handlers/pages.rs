@@ -79,3 +79,15 @@ pub async fn nfc_setup_page(
 
     Ok(Html(page.into_string()))
 }
+
+pub async fn donate_page(State(state): State<Arc<AppState>>) -> Result<Html<String>, StatusCode> {
+    let pool = state.db.get_donation_pool().await.map_err(|e| {
+        tracing::error!("Failed to get donation pool: {}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    let content = templates::donate(&pool);
+    let page = templates::base("Donate", content);
+
+    Ok(Html(page.into_string()))
+}
