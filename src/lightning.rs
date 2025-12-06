@@ -21,10 +21,11 @@ impl LightningService {
 
     /// Create an invoice for withdrawal
     /// In production, this would use blitzi to generate actual Lightning invoices
+    #[allow(dead_code)]
     pub async fn create_withdrawal_invoice(
         &self,
         amount_sats: i64,
-        description: &str,
+        _description: &str,
     ) -> Result<String> {
         // TODO: Implement actual Lightning invoice creation with blitzi
         // For now, return a mock invoice

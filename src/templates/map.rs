@@ -54,7 +54,7 @@ pub fn map(locations: &[Location]) -> Markup {
             document.head.appendChild(style);
 
             // Add locations as markers
-            const locations = {};
+            const locations = {locations};
             let bounds = [];
 
             locations.forEach(loc => {{

@@ -43,6 +43,7 @@ pub struct Scan {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct CreateLocationRequest {
     pub name: String,
     pub latitude: f64,
@@ -52,6 +53,7 @@ pub struct CreateLocationRequest {
 }
 
 #[derive(Debug, Serialize)]
+#[allow(dead_code)]
 pub struct LocationWithPhotos {
     #[serde(flatten)]
     pub location: Location,

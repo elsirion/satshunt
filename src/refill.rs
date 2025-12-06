@@ -1,6 +1,6 @@
 use crate::db::Database;
 use anyhow::Result;
-use chrono::{Duration, Utc};
+use chrono::Utc;
 use std::sync::Arc;
 use tokio::time;
 

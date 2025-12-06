@@ -3,7 +3,7 @@ use maud::{html, Markup, PreEscaped};
 
 pub fn nfc_setup(location: &Location, write_token: &str, base_url: &str) -> Markup {
     let lnurlw_url = format!("{}/api/lnurlw/{}", base_url, location.id);
-    let setup_url = format!("{}/setup/{}", base_url, write_token);
+    let _setup_url = format!("{}/setup/{}", base_url, write_token);
 
     html! {
         div class="max-w-2xl mx-auto" {

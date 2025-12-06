@@ -19,6 +19,7 @@ impl Database {
         Ok(Self { pool })
     }
 
+    #[allow(dead_code)]
     pub fn pool(&self) -> &SqlitePool {
         &self.pool
     }
@@ -83,6 +84,7 @@ impl Database {
         .map_err(Into::into)
     }
 
+    #[allow(dead_code)]
     pub async fn mark_write_token_used(&self, token: &str) -> Result<SqliteQueryResult> {
         sqlx::query("UPDATE locations SET write_token_used = 1 WHERE write_token = ?")
             .bind(token)
@@ -150,6 +152,7 @@ impl Database {
             .map_err(Into::into)
     }
 
+    #[allow(dead_code)]
     pub async fn update_donation_pool(&self, sats: i64) -> Result<SqliteQueryResult> {
         sqlx::query("UPDATE donation_pool SET total_sats = ?, updated_at = ? WHERE id = 1")
             .bind(sats)

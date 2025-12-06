@@ -321,7 +321,8 @@ pub async fn create_donation_invoice(
         })?;
 
     // Encode as base64
-    let qr_base64 = base64::encode(&png_bytes);
+    use base64::Engine;
+    let qr_base64 = base64::engine::general_purpose::STANDARD.encode(&png_bytes);
 
     tracing::info!("Invoice created successfully");
 
