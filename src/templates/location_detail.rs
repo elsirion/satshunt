@@ -11,41 +11,41 @@ pub fn location_detail(location: &Location, photos: &[Photo], base_url: &str, ma
     html! {
         div class="max-w-4xl mx-auto" {
             // Back button
-            a href="/map" class="inline-flex items-center text-yellow-400 hover:text-yellow-300 mb-6" {
+            a href="/map" class="inline-flex items-center text-highlight hover:bg-accent-hover mb-6" {
                 "← Back to map"
             }
 
             // Location header
-            div class="bg-slate-800 rounded-lg p-8 mb-8 border border-slate-700" {
-                h1 class="text-4xl font-bold mb-4 text-yellow-400" { (location.name) }
+            div class="bg-secondary rounded-lg p-8 mb-8 border border-accent-muted" {
+                h1 class="text-4xl font-bold mb-4 text-highlight" { (location.name) }
 
                 @if let Some(desc) = &location.description {
-                    p class="text-slate-300 mb-6" { (desc) }
+                    p class="text-secondary mb-6" { (desc) }
                 }
 
                 // Stats grid
                 div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6" {
-                    div class="bg-slate-700 rounded p-4" {
-                        div class="text-sm text-slate-400 mb-1" { "Available Sats" }
-                        div class="text-2xl font-bold text-yellow-400" {
+                    div class="bg-tertiary rounded p-4" {
+                        div class="text-sm text-muted mb-1" { "Available Sats" }
+                        div class="text-2xl font-bold text-highlight" {
                             (location.current_sats) " ⚡"
                         }
                     }
-                    div class="bg-slate-700 rounded p-4" {
-                        div class="text-sm text-slate-400 mb-1" { "Max Capacity" }
-                        div class="text-2xl font-bold text-slate-300" {
+                    div class="bg-tertiary rounded p-4" {
+                        div class="text-sm text-muted mb-1" { "Max Capacity" }
+                        div class="text-2xl font-bold text-secondary" {
                             (max_sats_per_location) " ⚡"
                         }
                     }
-                    div class="bg-slate-700 rounded p-4" {
-                        div class="text-sm text-slate-400 mb-1" { "Fill Level" }
-                        div class="text-2xl font-bold text-green-400" {
+                    div class="bg-tertiary rounded p-4" {
+                        div class="text-sm text-muted mb-1" { "Fill Level" }
+                        div class="text-2xl font-bold text-success" {
                             (sats_percent) "%"
                         }
                     }
-                    div class="bg-slate-700 rounded p-4" {
-                        div class="text-sm text-slate-400 mb-1" { "Coordinates" }
-                        div class="text-sm font-mono text-slate-300" {
+                    div class="bg-tertiary rounded p-4" {
+                        div class="text-sm text-muted mb-1" { "Coordinates" }
+                        div class="text-sm font-mono text-secondary" {
                             (format!("{:.4}", location.latitude)) br;
                             (format!("{:.4}", location.longitude))
                         }
@@ -53,42 +53,42 @@ pub fn location_detail(location: &Location, photos: &[Photo], base_url: &str, ma
                 }
 
                 // Progress bar
-                div class="w-full bg-slate-700 rounded-full h-4" {
-                    div class="bg-yellow-500 h-4 rounded-full transition-all"
+                div class="w-full bg-tertiary rounded-full h-4" {
+                    div class="bg-highlight h-4 rounded-full transition-all"
                         style=(format!("width: {}%", sats_percent)) {}
                 }
             }
 
             // Photos
             @if !photos.is_empty() {
-                div class="bg-slate-800 rounded-lg p-8 mb-8 border border-slate-700" {
-                    h2 class="text-2xl font-bold mb-4 text-yellow-400" { "📸 Photos" }
+                div class="bg-secondary rounded-lg p-8 mb-8 border border-accent-muted" {
+                    h2 class="text-2xl font-bold mb-4 text-highlight" { "📸 Photos" }
                     div class="grid grid-cols-1 md:grid-cols-3 gap-4" {
                         @for photo in photos {
                             img src={"/uploads/" (photo.file_path)}
                                 alt="Location photo"
-                                class="w-full h-48 object-cover rounded-lg border border-slate-600";
+                                class="w-full h-48 object-cover rounded-lg border border-accent-muted";
                         }
                     }
                 }
             }
 
             // Map
-            div class="bg-slate-800 rounded-lg p-8 mb-8 border border-slate-700" {
-                h2 class="text-2xl font-bold mb-4 text-yellow-400" { "🗺️ Location" }
-                div id="map" class="w-full h-64 rounded-lg border border-slate-700" {}
+            div class="bg-secondary rounded-lg p-8 mb-8 border border-accent-muted" {
+                h2 class="text-2xl font-bold mb-4 text-highlight" { "🗺️ Location" }
+                div id="map" class="w-full h-64 rounded-lg border border-accent-muted" {}
             }
 
             // Testing section with LNURL-withdraw QR
-            div class="bg-slate-800 rounded-lg p-8 border border-slate-700 border-dashed" {
-                h2 class="text-2xl font-bold mb-4 text-yellow-400" { "🧪 Testing - LNURL Withdraw" }
-                p class="text-slate-300 mb-4" {
+            div class="bg-secondary rounded-lg p-8 border border-accent-muted border-dashed" {
+                h2 class="text-2xl font-bold mb-4 text-highlight" { "🧪 Testing - LNURL Withdraw" }
+                p class="text-secondary mb-4" {
                     "Scan this QR code with your Lightning wallet to test withdrawing sats from this location. "
                     "In production, this would be written to an NFC tag."
                 }
 
                 @if location.current_sats == 0 {
-                    div class="bg-yellow-900 border border-yellow-700 text-yellow-200 px-4 py-3 rounded-lg mb-6" {
+                    div class="bg-warning border border-warning text-primary px-4 py-3 rounded-lg mb-6" {
                         p { "⚠️ No sats available in this location. Wait for it to refill from the donation pool." }
                     }
                 }
@@ -101,17 +101,17 @@ pub fn location_detail(location: &Location, photos: &[Photo], base_url: &str, ma
 
                     // Details
                     div class="flex-1" {
-                        div class="bg-slate-700 rounded-lg p-4 mb-4" {
-                            p class="text-sm text-slate-400 mb-1" { "Available to Withdraw" }
-                            p class="text-3xl font-bold text-yellow-400" {
+                        div class="bg-tertiary rounded-lg p-4 mb-4" {
+                            p class="text-sm text-muted mb-1" { "Available to Withdraw" }
+                            p class="text-3xl font-bold text-highlight" {
                                 (location.current_sats) " sats"
                             }
                         }
-                        details class="bg-slate-700 rounded-lg p-4" {
-                            summary class="cursor-pointer text-slate-300 hover:text-slate-200 font-semibold" {
+                        details class="bg-tertiary rounded-lg p-4" {
+                            summary class="cursor-pointer text-secondary hover:text-primary font-semibold" {
                                 "Show LNURL"
                             }
-                            div class="mt-2 p-3 bg-slate-800 rounded text-xs font-mono break-all text-slate-300" {
+                            div class="mt-2 p-3 bg-secondary rounded text-xs font-mono break-all text-secondary" {
                                 (format!("{}/api/lnurlw/{}", base_url, location.id))
                             }
                         }

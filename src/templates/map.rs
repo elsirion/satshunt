@@ -3,28 +3,28 @@ use maud::{html, Markup, PreEscaped};
 
 pub fn map(locations: &[Location], max_sats_per_location: i64) -> Markup {
     html! {
-        h1 class="text-4xl font-bold mb-8 text-yellow-400" { "🗺️ Treasure Map" }
+        h1 class="text-4xl font-bold mb-8 text-highlight" { "🗺️ Treasure Map" }
 
-        div class="bg-slate-800 rounded-lg p-4 mb-8 border border-slate-700" {
-            p class="text-slate-300" {
+        div class="bg-secondary rounded-lg p-4 mb-8 border border-accent-muted" {
+            p class="text-secondary" {
                 "Explore locations around you. Green markers have more sats available, red markers are nearly empty."
             }
         }
 
         // Map container
-        div id="map" class="w-full h-96 rounded-lg border border-slate-700 mb-8" {}
+        div id="map" class="w-full h-96 rounded-lg border border-accent-muted mb-8" {}
 
         // Locations list
-        div class="bg-slate-800 rounded-lg p-6 border border-slate-700" {
-            h2 class="text-2xl font-bold mb-4 text-yellow-400" { "All Locations" }
+        div class="bg-secondary rounded-lg p-6 border border-accent-muted" {
+            h2 class="text-2xl font-bold mb-4 text-highlight" { "All Locations" }
             div class="grid gap-4" {
                 @for location in locations {
                     (location_card(location, max_sats_per_location))
                 }
                 @if locations.is_empty() {
-                    p class="text-slate-400 text-center py-8" {
+                    p class="text-muted text-center py-8" {
                         "No locations yet. Be the first to "
-                        a href="/locations/new" class="text-yellow-400 hover:text-yellow-300" {
+                        a href="/locations/new" class="text-highlight hover:bg-accent-hover" {
                             "add one"
                         }
                         "!"
@@ -101,23 +101,23 @@ fn location_card(location: &Location, max_sats_per_location: i64) -> Markup {
     };
 
     let color_class = if sats_percent > 50 {
-        "text-green-400"
+        "text-success"
     } else if sats_percent > 20 {
-        "text-yellow-400"
+        "text-warning"
     } else {
-        "text-red-400"
+        "text-error"
     };
 
     html! {
         a href={"/locations/" (location.id)}
-            class="block p-4 bg-slate-700 hover:bg-slate-600 rounded-lg transition border border-slate-600" {
+            class="block p-4 bg-tertiary hover:bg-elevated rounded-lg transition border border-accent-muted" {
             div class="flex justify-between items-start" {
                 div {
-                    h3 class="text-xl font-semibold text-yellow-400 mb-2" { (location.name) }
+                    h3 class="text-xl font-semibold text-highlight mb-2" { (location.name) }
                     @if let Some(desc) = &location.description {
-                        p class="text-slate-300 text-sm mb-2" { (desc) }
+                        p class="text-secondary text-sm mb-2" { (desc) }
                     }
-                    p class="text-slate-400 text-sm" {
+                    p class="text-muted text-sm" {
                         "📍 " (format!("{:.4}, {:.4}", location.latitude, location.longitude))
                     }
                 }
@@ -125,7 +125,7 @@ fn location_card(location: &Location, max_sats_per_location: i64) -> Markup {
                     div class=(format!("text-2xl font-bold {}", color_class)) {
                         (location.current_sats) " ⚡"
                     }
-                    div class="text-slate-400 text-sm" {
+                    div class="text-muted text-sm" {
                         "/ " (max_sats_per_location) " sats"
                     }
                 }

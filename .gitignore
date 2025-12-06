@@ -16,11 +16,6 @@ Cargo.lock
 
 # Uploads
 /uploads
-*.jpg
-*.jpeg
-*.png
-*.gif
-*.webp
 
 # IDE
 .vscode/

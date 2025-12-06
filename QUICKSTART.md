@@ -1,4 +1,4 @@
-# SatShunt - Quick Start Guide
+# SatsHunt - Quick Start Guide
 
 ## 🚀 Get Running in 60 Seconds
 
@@ -263,7 +263,7 @@ DATABASE_URL=sqlite:/var/lib/satshunt/satshunt.db
 ### 3. Run with Systemd
 ```ini
 [Unit]
-Description=SatShunt Treasure Hunt
+Description=SatsHunt Treasure Hunt
 After=network.target
 
 [Service]

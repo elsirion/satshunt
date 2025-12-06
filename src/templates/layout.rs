@@ -11,7 +11,18 @@ pub fn base_with_user(title: &str, content: Markup, username: Option<&str>) -> M
             head {
                 meta charset="utf-8";
                 meta name="viewport" content="width=device-width, initial-scale=1.0";
-                title { (title) " - SatShunt" }
+                meta name="theme-color" content="#F7931A";
+                title { (title) " - SatsHunt" }
+
+                // Favicons
+                link rel="icon" type="image/x-icon" href="/static/favicon.ico";
+                link rel="icon" type="image/png" sizes="16x16" href="/static/images/favicon-16x16.png";
+                link rel="icon" type="image/png" sizes="32x32" href="/static/images/favicon-32x32.png";
+                link rel="apple-touch-icon" sizes="180x180" href="/static/images/apple-touch-icon.png";
+                link rel="manifest" href="/static/site.webmanifest";
+
+                // Custom color palette
+                link rel="stylesheet" href="/static/css/colors.css";
 
                 // Tailwind CSS CDN
                 script src="https://cdn.tailwindcss.com" {}
@@ -30,18 +41,8 @@ pub fn base_with_user(title: &str, content: Markup, username: Option<&str>) -> M
                 script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
                     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
                     crossorigin="" {}
-
-                // Custom styles
-                style {
-                    "
-                    body {
-                        background-color: #0f172a;
-                        color: #e2e8f0;
-                    }
-                    "
-                }
             }
-            body class="bg-slate-900 text-slate-200" {
+            body {
                 (navbar(username))
                 main class="container mx-auto px-4 py-8" {
                     (content)
@@ -54,13 +55,14 @@ pub fn base_with_user(title: &str, content: Markup, username: Option<&str>) -> M
 
 fn navbar(username: Option<&str>) -> Markup {
     html! {
-        nav class="bg-slate-800 border-b border-slate-700" {
+        nav class="bg-secondary border-b border-accent-muted" {
             div class="max-w-screen-xl mx-auto p-4" {
                 div class="flex items-center justify-between" {
                     // Left: Logo
-                    a href="/" class="flex items-center space-x-3" {
-                        span class="text-2xl font-semibold whitespace-nowrap text-yellow-400" {
-                            "⚡ SatShunt"
+                    a href="/" class="flex items-center space-x-2" {
+                        img src="/static/images/satshunt_logo_small.png" alt="SatsHunt Logo" class="h-10 w-10";
+                        span class="text-2xl font-semibold whitespace-nowrap text-highlight" {
+                            "SatsHunt"
                         }
                     }
 
@@ -68,22 +70,22 @@ fn navbar(username: Option<&str>) -> Markup {
                     div class="hidden md:flex md:items-center md:justify-center md:flex-1" {
                         ul class="flex space-x-8" {
                             li {
-                                a href="/" class="text-slate-200 hover:text-yellow-400 transition" {
+                                a href="/" class="text-primary transition hover:text-accent" {
                                     "Home"
                                 }
                             }
                             li {
-                                a href="/map" class="text-slate-200 hover:text-yellow-400 transition" {
+                                a href="/map" class="text-primary transition hover:text-accent" {
                                     "Map"
                                 }
                             }
                             li {
-                                a href="/locations/new" class="text-slate-200 hover:text-yellow-400 transition" {
+                                a href="/locations/new" class="text-primary transition hover:text-accent" {
                                     "Add Location"
                                 }
                             }
                             li {
-                                a href="/donate" class="text-yellow-400 hover:text-yellow-300 transition" {
+                                a href="/donate" class="text-highlight transition hover:brightness-110" {
                                     "💰 Donate"
                                 }
                             }
@@ -93,22 +95,22 @@ fn navbar(username: Option<&str>) -> Markup {
                     // Right: Login status (desktop)
                     div class="hidden md:flex md:items-center md:space-x-4" {
                         @if let Some(user) = username {
-                            span class="text-slate-300 text-sm" {
+                            span class="text-primary text-sm" {
                                 "👤 " (user)
                             }
                             form action="/logout" method="post" class="inline" {
                                 button type="submit"
-                                    class="text-slate-400 hover:text-yellow-400 text-sm transition" {
+                                    class="text-secondary hover:text-accent text-sm transition" {
                                     "Logout"
                                 }
                             }
                         } @else {
                             a href="/login"
-                                class="text-slate-200 hover:text-yellow-400 text-sm transition" {
+                                class="text-primary hover:text-accent text-sm transition" {
                                 "Login"
                             }
                             a href="/register"
-                                class="px-4 py-2 bg-yellow-500 hover:bg-yellow-600 text-slate-900 font-semibold rounded-lg text-sm transition" {
+                                class="btn-primary text-sm" {
                                 "Register"
                             }
                         }
@@ -116,7 +118,7 @@ fn navbar(username: Option<&str>) -> Markup {
 
                     // Mobile menu button
                     button data-collapse-toggle="navbar-mobile" type="button"
-                        class="inline-flex items-center p-2 w-10 h-10 justify-center text-slate-400 rounded-lg md:hidden hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-600"
+                        class="inline-flex items-center p-2 w-10 h-10 justify-center text-secondary rounded-lg md:hidden hover:bg-tertiary focus:outline-none focus:ring-2 focus:ring-accent-muted"
                         aria-controls="navbar-mobile" aria-expanded="false" {
                         span class="sr-only" { "Open main menu" }
                         svg class="w-5 h-5" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 17 14" {
@@ -131,37 +133,37 @@ fn navbar(username: Option<&str>) -> Markup {
                     // Menu items
                     ul class="flex flex-col mt-4 space-y-2" {
                         li {
-                            a href="/" class="block py-2 px-3 text-slate-200 rounded hover:bg-slate-700" {
+                            a href="/" class="block py-2 px-3 text-primary rounded hover:bg-tertiary" {
                                 "Home"
                             }
                         }
                         li {
-                            a href="/map" class="block py-2 px-3 text-slate-200 rounded hover:bg-slate-700" {
+                            a href="/map" class="block py-2 px-3 text-primary rounded hover:bg-tertiary" {
                                 "Map"
                             }
                         }
                         li {
-                            a href="/locations/new" class="block py-2 px-3 text-slate-200 rounded hover:bg-slate-700" {
+                            a href="/locations/new" class="block py-2 px-3 text-primary rounded hover:bg-tertiary" {
                                 "Add Location"
                             }
                         }
                         li {
-                            a href="/donate" class="block py-2 px-3 text-yellow-400 rounded hover:bg-slate-700" {
+                            a href="/donate" class="block py-2 px-3 text-highlight rounded hover:bg-tertiary" {
                                 "💰 Donate"
                             }
                         }
                     }
 
                     // Login status (mobile)
-                    div class="mt-4 pt-4 border-t border-slate-700" {
+                    div class="mt-4 pt-4 border-t border-accent-muted" {
                         @if let Some(user) = username {
                             div class="flex items-center justify-between px-3 py-2" {
-                                span class="text-slate-300 text-sm" {
+                                span class="text-primary text-sm" {
                                     "👤 " (user)
                                 }
                                 form action="/logout" method="post" class="inline" {
                                     button type="submit"
-                                        class="text-slate-400 hover:text-yellow-400 text-sm transition" {
+                                        class="text-secondary hover:text-accent text-sm transition" {
                                         "Logout"
                                     }
                                 }
@@ -169,11 +171,11 @@ fn navbar(username: Option<&str>) -> Markup {
                         } @else {
                             div class="flex flex-col space-y-2 px-3 py-2" {
                                 a href="/login"
-                                    class="block py-2 px-3 text-slate-200 rounded hover:bg-slate-700 text-center" {
+                                    class="block py-2 px-3 text-primary rounded hover:bg-tertiary text-center" {
                                     "Login"
                                 }
                                 a href="/register"
-                                    class="block py-2 px-3 bg-yellow-500 hover:bg-yellow-600 text-slate-900 font-semibold rounded-lg text-center transition" {
+                                    class="btn-primary text-center" {
                                     "Register"
                                 }
                             }
@@ -187,14 +189,14 @@ fn navbar(username: Option<&str>) -> Markup {
 
 fn footer() -> Markup {
     html! {
-        footer class="bg-slate-800 border-t border-slate-700 mt-16" {
+        footer class="bg-secondary border-t border-accent-muted mt-16" {
             div class="max-w-screen-xl mx-auto p-4 md:p-8" {
                 div class="sm:flex sm:items-center sm:justify-between" {
-                    span class="text-sm text-slate-400 sm:text-center" {
-                        "© 2024 SatShunt. A Lightning treasure hunt game."
+                    span class="text-sm text-secondary sm:text-center" {
+                        "© 2024 SatsHunt. A Lightning treasure hunt game."
                     }
                     div class="flex mt-4 space-x-5 sm:justify-center sm:mt-0" {
-                        a href="https://github.com" class="text-slate-400 hover:text-yellow-400" {
+                        a href="https://github.com" class="text-secondary hover:text-accent" {
                             span class="sr-only" { "GitHub" }
                             "GitHub"
                         }

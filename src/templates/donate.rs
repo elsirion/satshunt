@@ -4,50 +4,50 @@ use maud::{html, Markup, PreEscaped};
 pub fn donate(pool: &DonationPool) -> Markup {
     html! {
         div class="max-w-2xl mx-auto" {
-            h1 class="text-4xl font-bold mb-8 text-yellow-400" { "💰 Donate to the Pool" }
+            h1 class="text-4xl font-bold mb-8 text-highlight" { "💰 Donate to the Pool" }
 
             // Current pool stats
-            div class="bg-slate-800 rounded-lg p-8 mb-8 border border-slate-700" {
-                h2 class="text-2xl font-bold mb-4 text-yellow-400" { "Current Donation Pool" }
+            div class="bg-secondary rounded-lg p-8 mb-8 border border-accent-muted" {
+                h2 class="text-2xl font-bold mb-4 text-highlight" { "Current Donation Pool" }
                 div class="text-center" {
-                    div class="text-6xl font-bold text-yellow-400 mb-2" {
+                    div class="text-6xl font-bold text-highlight mb-2" {
                         (pool.total_sats) " ⚡"
                     }
-                    p class="text-slate-400" { "Total sats available for refills" }
+                    p class="text-muted" { "Total sats available for refills" }
                 }
             }
 
             // Why donate section
-            div class="bg-slate-800 rounded-lg p-8 mb-8 border border-slate-700" {
-                h2 class="text-2xl font-bold mb-4 text-yellow-400" { "Why Donate?" }
-                ul class="space-y-3 text-slate-300" {
+            div class="bg-secondary rounded-lg p-8 mb-8 border border-accent-muted" {
+                h2 class="text-2xl font-bold mb-4 text-highlight" { "Why Donate?" }
+                ul class="space-y-3 text-secondary" {
                     li class="flex items-start" {
-                        span class="text-yellow-400 mr-2" { "⚡" }
+                        span class="text-highlight mr-2" { "⚡" }
                         "Keeps treasure locations refilling automatically"
                     }
                     li class="flex items-start" {
-                        span class="text-yellow-400 mr-2" { "⚡" }
+                        span class="text-highlight mr-2" { "⚡" }
                         "Enables new treasure hunters to find sats"
                     }
                     li class="flex items-start" {
-                        span class="text-yellow-400 mr-2" { "⚡" }
+                        span class="text-highlight mr-2" { "⚡" }
                         "Supports the community treasure hunt game"
                     }
                     li class="flex items-start" {
-                        span class="text-yellow-400 mr-2" { "⚡" }
+                        span class="text-highlight mr-2" { "⚡" }
                         "Locations refill at 1 sat per minute from this pool"
                     }
                 }
             }
 
             // Donation form
-            div class="bg-slate-800 rounded-lg p-8 border border-slate-700" {
-                h2 class="text-2xl font-bold mb-6 text-yellow-400" { "Make a Donation" }
+            div class="bg-secondary rounded-lg p-8 border border-accent-muted" {
+                h2 class="text-2xl font-bold mb-6 text-highlight" { "Make a Donation" }
 
                 div id="donationContainer" {
                     // Amount selection
                     div id="amountSelection" {
-                        label class="block mb-4 text-sm font-medium text-slate-200" {
+                        label class="block mb-4 text-sm font-medium text-primary" {
                             "Choose donation amount:"
                         }
                         div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4" {
@@ -65,15 +65,15 @@ pub fn donate(pool: &DonationPool) -> Markup {
 
                         // Custom amount
                         div id="customAmountDiv" class="hidden mt-4" {
-                            label for="customAmount" class="block mb-2 text-sm font-medium text-slate-200" {
+                            label for="customAmount" class="block mb-2 text-sm font-medium text-primary" {
                                 "Custom Amount (sats)"
                             }
                             div class="flex gap-2" {
                                 input type="number" id="customAmount" min="1" step="1"
-                                    class="flex-1 bg-slate-700 border border-slate-600 text-slate-200 text-sm rounded-lg focus:ring-yellow-500 focus:border-yellow-500 p-2.5"
+                                    class="flex-1 bg-tertiary border border-accent-muted text-primary text-sm rounded-lg focus:ring-accent focus:border-accent p-2.5"
                                     placeholder="Enter amount in satoshis";
                                 button type="button" id="customSubmit"
-                                    class="px-4 py-2 bg-yellow-500 hover:bg-yellow-600 text-slate-900 font-semibold rounded-lg transition" {
+                                    class="px-4 py-2 btn-primary" {
                                     "Create Invoice"
                                 }
                             }
@@ -89,9 +89,9 @@ pub fn donate(pool: &DonationPool) -> Markup {
             }
 
             // How it works
-            div class="bg-slate-800 rounded-lg p-8 mt-8 border border-slate-700" {
-                h2 class="text-2xl font-bold mb-4 text-yellow-400" { "How Donations Work" }
-                div class="space-y-4 text-slate-300" {
+            div class="bg-secondary rounded-lg p-8 mt-8 border border-accent-muted" {
+                h2 class="text-2xl font-bold mb-4 text-highlight" { "How Donations Work" }
+                div class="space-y-4 text-secondary" {
                     p {
                         "All donations go into a shared pool that automatically refills treasure locations. "
                         "Each location refills at a rate of 1 sat per minute (60 sats per hour), up to its maximum capacity."
@@ -100,7 +100,7 @@ pub fn donate(pool: &DonationPool) -> Markup {
                         "When treasure hunters scan NFC tags and claim sats, the location balance decreases. "
                         "The refill system ensures locations stay active and hunters can keep finding treasure!"
                     }
-                    p class="text-yellow-400 font-semibold" {
+                    p class="text-highlight font-semibold" {
                         "Your donation keeps the treasure hunt alive for everyone!"
                     }
                 }
@@ -171,23 +171,23 @@ pub fn donate(pool: &DonationPool) -> Markup {
 
                     // Display invoice and QR code
                     document.getElementById('invoiceArea').innerHTML = `
-                        <div class="bg-slate-700 rounded-lg p-6">
+                        <div class="bg-tertiary rounded-lg p-6">
                             <div class="text-center mb-4">
-                                <p class="text-2xl font-bold text-yellow-400 mb-2">${amount.toLocaleString()} sats</p>
-                                <p class="text-sm text-slate-400">Scan with your Lightning wallet</p>
+                                <p class="text-2xl font-bold text-highlight mb-2">${amount.toLocaleString()} sats</p>
+                                <p class="text-sm text-muted">Scan with your Lightning wallet</p>
                             </div>
                             <div class="bg-white p-4 rounded-lg inline-block mx-auto block">
                                 <img src="${data.qr_code}" alt="Invoice QR Code" class="w-64 h-64 mx-auto">
                             </div>
                             <details class="mt-4">
-                                <summary class="cursor-pointer text-slate-400 hover:text-slate-300 text-sm">
+                                <summary class="cursor-pointer text-muted hover:text-secondary text-sm">
                                     Show invoice string
                                 </summary>
-                                <div class="mt-2 p-3 bg-slate-800 rounded text-xs font-mono break-all text-slate-300">
+                                <div class="mt-2 p-3 bg-secondary rounded text-xs font-mono break-all text-secondary">
                                     ${data.invoice}
                                 </div>
                             </details>
-                            <div class="mt-6 bg-blue-900 border border-blue-700 text-blue-200 px-4 py-3 rounded-lg">
+                            <div class="mt-6 bg-info border border-info text-primary px-4 py-3 rounded-lg">
                                 <p class="text-sm flex items-center">
                                     <span class="animate-pulse mr-2">⏳</span>
                                     Waiting for payment...
@@ -206,7 +206,7 @@ pub fn donate(pool: &DonationPool) -> Markup {
                 } catch (error) {
                     console.error('Error:', error);
                     document.getElementById('invoiceArea').innerHTML = `
-                        <div class="bg-red-900 border border-red-700 text-red-200 px-4 py-3 rounded-lg">
+                        <div class="bg-error border border-error text-primary px-4 py-3 rounded-lg">
                             <p class="font-semibold">Error</p>
                             <p class="text-sm">${error.message}</p>
                         </div>
@@ -223,7 +223,7 @@ pub fn donate(pool: &DonationPool) -> Markup {
 fn amount_button(amount: &str, label: &str) -> Markup {
     html! {
         button type="button" data-amount=(amount)
-            class="amount-btn px-4 py-3 bg-slate-700 hover:bg-slate-600 text-slate-200 font-semibold rounded-lg border border-slate-600 transition" {
+            class="amount-btn px-4 py-3 bg-tertiary hover:bg-elevated text-primary font-semibold rounded-lg border border-accent-muted transition" {
             (label)
         }
     }

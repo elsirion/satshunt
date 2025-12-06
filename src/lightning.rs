@@ -98,7 +98,7 @@ impl LnurlWithdrawResponse {
             secret,
             min_withdrawable: 1000, // 1 sat minimum
             max_withdrawable: msats,
-            default_description: format!("SatShunt treasure from {}", location_name),
+            default_description: format!("SatsHunt treasure from {}", location_name),
         }
     }
 }

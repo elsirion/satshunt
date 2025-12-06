@@ -116,6 +116,7 @@ async fn main() -> Result<()> {
         .route("/api/refill/trigger", post(handlers::manual_refill))
         // Static files
         .nest_service("/uploads", ServeDir::new(&uploads_dir))
+        .nest_service("/static", ServeDir::new("static"))
         // State and middleware
         .with_state(app_state)
         .layer(session_layer)
@@ -125,7 +126,7 @@ async fn main() -> Result<()> {
     let addr = format!("{}:{}", config.host, config.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
 
-    tracing::info!("🚀 SatShunt server listening on http://{}", addr);
+    tracing::info!("🚀 SatsHunt server listening on http://{}", addr);
     tracing::info!("📍 Base URL: {}", base_url);
     tracing::info!("⚙️  Refill rate: {} sats/hour", config.refill_rate_sats_per_hour);
     tracing::info!("⚙️  Max sats per location: {}", config.max_sats_per_location);

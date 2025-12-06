@@ -6,10 +6,10 @@ mkdir -p uploads
 mkdir -p lightning_data
 
 # Build the application
-echo "Building SatShunt..."
+echo "Building SatsHunt..."
 cargo build --release
 
 # Run the application
-echo "Starting SatShunt..."
+echo "Starting SatsHunt..."
 echo "Open http://localhost:3000 in your browser"
 cargo run --release

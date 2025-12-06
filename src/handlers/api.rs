@@ -275,7 +275,7 @@ pub async fn create_donation_invoice(
     tracing::info!("Creating invoice for donation of {} sats", payload.amount);
 
     // Generate Lightning invoice
-    let description = format!("SatShunt donation: {} sats", payload.amount);
+    let description = format!("SatsHunt donation: {} sats", payload.amount);
     let invoice = state
         .lightning
         .create_invoice(payload.amount as u64, &description)

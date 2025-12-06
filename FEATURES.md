@@ -1,4 +1,4 @@
-# SatShunt - Feature Overview
+# SatsHunt - Feature Overview
 
 ## ✅ Implemented Features
 

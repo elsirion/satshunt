@@ -1,7 +1,7 @@
 use clap::Parser;
 use std::path::PathBuf;
 
-/// SatShunt - A Lightning Network treasure hunt service
+/// SatsHunt - A Lightning Network treasure hunt service
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about, long_about = None)]
 pub struct Config {

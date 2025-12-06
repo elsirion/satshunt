@@ -2,51 +2,51 @@ use maud::{html, Markup};
 
 pub fn login(error: Option<&str>) -> Markup {
     html! {
-        h1 class="text-4xl font-bold mb-8 text-yellow-400" { "Login" }
+        h1 class="text-4xl font-bold mb-8 text-highlight" { "Login" }
 
         div class="max-w-md mx-auto" {
             form action="/login" method="post"
-                class="bg-slate-800 rounded-lg p-8 border border-slate-700 space-y-6" {
+                class="bg-secondary rounded-lg p-8 border border-accent-muted space-y-6" {
 
                 @if let Some(error_msg) = error {
-                    div class="bg-red-900 border border-red-700 text-red-200 px-4 py-3 rounded-lg" {
+                    div class="bg-error border border-error text-primary px-4 py-3 rounded-lg" {
                         (error_msg)
                     }
                 }
 
                 // Username field
                 div {
-                    label for="username" class="block mb-2 text-sm font-medium text-slate-200" {
+                    label for="username" class="block mb-2 text-sm font-medium text-primary" {
                         "Username"
                     }
                     input type="text" id="username" name="username" required autofocus
-                        class="bg-slate-700 border border-slate-600 text-slate-200 text-sm rounded-lg focus:ring-yellow-500 focus:border-yellow-500 block w-full p-2.5"
+                        class="bg-tertiary border border-accent-muted text-primary text-sm rounded-lg focus:ring-accent focus:border-accent block w-full p-2.5"
                         placeholder="Enter your username";
                 }
 
                 // Password field
                 div {
-                    label for="password" class="block mb-2 text-sm font-medium text-slate-200" {
+                    label for="password" class="block mb-2 text-sm font-medium text-primary" {
                         "Password"
                     }
                     input type="password" id="password" name="password" required
-                        class="bg-slate-700 border border-slate-600 text-slate-200 text-sm rounded-lg focus:ring-yellow-500 focus:border-yellow-500 block w-full p-2.5"
+                        class="bg-tertiary border border-accent-muted text-primary text-sm rounded-lg focus:ring-accent focus:border-accent block w-full p-2.5"
                         placeholder="Enter your password";
                 }
 
                 // Submit button
                 div {
                     button type="submit"
-                        class="w-full px-6 py-3 bg-yellow-500 hover:bg-yellow-600 text-slate-900 font-semibold rounded-lg transition" {
+                        class="w-full btn-primary" {
                         "Login"
                     }
                 }
 
                 // Register link
                 div class="text-center" {
-                    p class="text-sm text-slate-400" {
+                    p class="text-sm text-muted" {
                         "Don't have an account? "
-                        a href="/register" class="text-yellow-400 hover:text-yellow-300" {
+                        a href="/register" class="text-highlight hover:bg-accent-hover" {
                             "Register here"
                         }
                     }

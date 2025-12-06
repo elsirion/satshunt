@@ -2,48 +2,48 @@ use maud::{html, Markup, PreEscaped};
 
 pub fn new_location() -> Markup {
     html! {
-        h1 class="text-4xl font-bold mb-8 text-yellow-400" { "➕ Add New Location" }
+        h1 class="text-4xl font-bold mb-8 text-highlight" { "➕ Add New Location" }
 
         div class="max-w-2xl mx-auto" {
             form id="locationForm" action="/api/locations" method="post" enctype="multipart/form-data"
-                class="bg-slate-800 rounded-lg p-8 border border-slate-700 space-y-6" {
+                class="bg-secondary rounded-lg p-8 border border-accent-muted space-y-6" {
 
                 // Name field
                 div {
-                    label for="name" class="block mb-2 text-sm font-medium text-slate-200" {
+                    label for="name" class="block mb-2 text-sm font-medium text-primary" {
                         "Location Name"
                     }
                     input type="text" id="name" name="name" required
-                        class="bg-slate-700 border border-slate-600 text-slate-200 text-sm rounded-lg focus:ring-yellow-500 focus:border-yellow-500 block w-full p-2.5"
+                        class="bg-tertiary border border-accent-muted text-primary text-sm rounded-lg focus:ring-accent focus:border-accent block w-full p-2.5"
                         placeholder="Treasure Rock in Central Park";
                 }
 
                 // Description
                 div {
-                    label for="description" class="block mb-2 text-sm font-medium text-slate-200" {
+                    label for="description" class="block mb-2 text-sm font-medium text-primary" {
                         "Description (optional)"
                     }
                     textarea id="description" name="description" rows="3"
-                        class="bg-slate-700 border border-slate-600 text-slate-200 text-sm rounded-lg focus:ring-yellow-500 focus:border-yellow-500 block w-full p-2.5"
+                        class="bg-tertiary border border-accent-muted text-primary text-sm rounded-lg focus:ring-accent focus:border-accent block w-full p-2.5"
                         placeholder="Behind the large oak tree near the fountain..." {}
                 }
 
                 // Coordinates
                 div class="grid md:grid-cols-2 gap-4" {
                     div {
-                        label for="latitude" class="block mb-2 text-sm font-medium text-slate-200" {
+                        label for="latitude" class="block mb-2 text-sm font-medium text-primary" {
                             "Latitude"
                         }
                         input type="number" id="latitude" name="latitude" required step="any" value="37.7749"
-                            class="bg-slate-700 border border-slate-600 text-slate-200 text-sm rounded-lg focus:ring-yellow-500 focus:border-yellow-500 block w-full p-2.5"
+                            class="bg-tertiary border border-accent-muted text-primary text-sm rounded-lg focus:ring-accent focus:border-accent block w-full p-2.5"
                             placeholder="37.7749";
                     }
                     div {
-                        label for="longitude" class="block mb-2 text-sm font-medium text-slate-200" {
+                        label for="longitude" class="block mb-2 text-sm font-medium text-primary" {
                             "Longitude"
                         }
                         input type="number" id="longitude" name="longitude" required step="any" value="-122.4194"
-                            class="bg-slate-700 border border-slate-600 text-slate-200 text-sm rounded-lg focus:ring-yellow-500 focus:border-yellow-500 block w-full p-2.5"
+                            class="bg-tertiary border border-accent-muted text-primary text-sm rounded-lg focus:ring-accent focus:border-accent block w-full p-2.5"
                             placeholder="-122.4194";
                     }
                 }
@@ -51,27 +51,27 @@ pub fn new_location() -> Markup {
                 // GPS button
                 div {
                     button type="button" id="useGps"
-                        class="w-full px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg border border-slate-600 transition" {
+                        class="w-full px-4 py-2 btn-secondary" {
                         "📍 Use My Current Location"
                     }
                 }
 
                 // Map preview
                 div {
-                    label class="block mb-2 text-sm font-medium text-slate-200" {
+                    label class="block mb-2 text-sm font-medium text-primary" {
                         "Location Preview"
                     }
-                    div id="previewMap" class="w-full h-64 rounded-lg border border-slate-700" {}
+                    div id="previewMap" class="w-full h-64 rounded-lg border border-accent-muted" {}
                 }
 
                 // Photo upload
                 div {
-                    label for="photos" class="block mb-2 text-sm font-medium text-slate-200" {
+                    label for="photos" class="block mb-2 text-sm font-medium text-primary" {
                         "Photos"
                     }
                     input type="file" id="photos" name="photos" accept="image/*" multiple
-                        class="block w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-yellow-500 file:text-slate-900 hover:file:bg-yellow-600";
-                    p class="mt-1 text-sm text-slate-400" {
+                        class="block w-full text-sm text-muted file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-highlight file:text-inverse hover:file:brightness-110";
+                    p class="mt-1 text-sm text-muted" {
                         "Upload photos to help others find the location"
                     }
                 }
@@ -79,7 +79,7 @@ pub fn new_location() -> Markup {
                 // Submit button
                 div {
                     button type="submit"
-                        class="w-full px-6 py-3 bg-yellow-500 hover:bg-yellow-600 text-slate-900 font-semibold rounded-lg transition" {
+                        class="w-full btn-primary" {
                         "Create Location"
                     }
                 }
