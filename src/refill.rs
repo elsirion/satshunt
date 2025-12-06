@@ -52,17 +52,19 @@ impl RefillService {
 
         let now = Utc::now();
         let mut total_refilled = 0i64;
+        let mut remaining_pool = donation_pool.total_sats;
 
         for location in locations {
-            // Calculate how much time has passed since last refill
-            let hours_since_refill = (now - location.last_refill_at).num_hours();
+            // Calculate how much time has passed since last refill in minutes
+            let minutes_since_refill = (now - location.last_refill_at).num_minutes();
 
-            if hours_since_refill < 1 {
+            if minutes_since_refill < 1 {
                 continue; // Not time to refill yet
             }
 
-            // Calculate refill amount
-            let refill_amount = hours_since_refill * self.config.sats_per_hour;
+            // Calculate refill amount (1 sat per minute)
+            let sats_per_minute = (self.config.sats_per_hour as f64 / 60.0).round() as i64;
+            let refill_amount = minutes_since_refill * sats_per_minute;
             let new_balance = (location.current_sats + refill_amount).min(location.max_sats);
             let actual_refill = new_balance - location.current_sats;
 
@@ -70,13 +72,13 @@ impl RefillService {
                 continue; // Already at max
             }
 
-            // Check if donation pool has enough
-            if donation_pool.total_sats < actual_refill {
+            // Check if remaining pool has enough
+            if remaining_pool < actual_refill {
                 tracing::warn!(
                     "Donation pool too low to refill location {}: need {}, have {}",
                     location.name,
                     actual_refill,
-                    donation_pool.total_sats
+                    remaining_pool
                 );
                 continue;
             }
@@ -86,6 +88,7 @@ impl RefillService {
             self.db.update_last_refill(&location.id).await?;
 
             total_refilled += actual_refill;
+            remaining_pool -= actual_refill;
 
             tracing::info!(
                 "Refilled location {} with {} sats (now at {}/{})",
@@ -102,7 +105,7 @@ impl RefillService {
             tracing::info!(
                 "Total refilled: {} sats, remaining pool: {} sats",
                 total_refilled,
-                donation_pool.total_sats - total_refilled
+                remaining_pool
             );
         }
 

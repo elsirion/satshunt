@@ -55,7 +55,7 @@ pub async fn location_detail_page(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    let content = templates::location_detail(&location, &photos);
+    let content = templates::location_detail(&location, &photos, &state.base_url);
     let page = templates::base(&location.name, content);
 
     Ok(Html(page.into_string()))

@@ -10,6 +10,7 @@ use axum::{
 use serde_json::json;
 use std::{path::PathBuf, sync::Arc};
 use tokio::{fs, io::AsyncWriteExt};
+use chrono::Utc;
 
 pub struct AppState {
     pub db: Database,
@@ -381,4 +382,97 @@ pub async fn wait_for_donation(
     );
 
     Ok(axum::response::Html(html))
+}
+
+/// Manually trigger the refill process for all locations
+pub async fn manual_refill(State(state): State<Arc<AppState>>) -> Result<Json<serde_json::Value>, StatusCode> {
+    tracing::info!("Manual refill triggered");
+
+    let locations = state.db.list_locations().await.map_err(|e| {
+        tracing::error!("Failed to list locations: {}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    let donation_pool = state.db.get_donation_pool().await.map_err(|e| {
+        tracing::error!("Failed to get donation pool: {}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    let now = Utc::now();
+    let mut total_refilled = 0i64;
+    let mut locations_refilled = 0;
+    let mut remaining_pool = donation_pool.total_sats;
+
+    for location in locations {
+        // Calculate how much time has passed since last refill in minutes
+        let minutes_since_refill = (now - location.last_refill_at).num_minutes();
+
+        if minutes_since_refill < 1 {
+            continue; // Not time to refill yet
+        }
+
+        // Calculate refill amount (1 sat per minute)
+        let refill_amount = minutes_since_refill;
+        let new_balance = (location.current_sats + refill_amount).min(location.max_sats);
+        let actual_refill = new_balance - location.current_sats;
+
+        if actual_refill <= 0 {
+            continue; // Already at max
+        }
+
+        // Check if remaining pool has enough
+        if remaining_pool < actual_refill {
+            tracing::warn!(
+                "Donation pool too low to refill location {}: need {}, have {}",
+                location.name,
+                actual_refill,
+                remaining_pool
+            );
+            continue;
+        }
+
+        // Update location balance
+        state.db.update_location_sats(&location.id, new_balance).await.map_err(|e| {
+            tracing::error!("Failed to update location sats: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+        state.db.update_last_refill(&location.id).await.map_err(|e| {
+            tracing::error!("Failed to update last refill: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+        total_refilled += actual_refill;
+        remaining_pool -= actual_refill;
+        locations_refilled += 1;
+
+        tracing::info!(
+            "Refilled location {} with {} sats (now at {}/{})",
+            location.name,
+            actual_refill,
+            new_balance,
+            location.max_sats
+        );
+    }
+
+    // Subtract from donation pool
+    if total_refilled > 0 {
+        state.db.subtract_from_donation_pool(total_refilled).await.map_err(|e| {
+            tracing::error!("Failed to subtract from donation pool: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+    }
+
+    let new_pool = state.db.get_donation_pool().await.map_err(|e| {
+        tracing::error!("Failed to get donation pool: {}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    Ok(Json(json!({
+        "success": true,
+        "locations_refilled": locations_refilled,
+        "total_sats_refilled": total_refilled,
+        "pool_before": donation_pool.total_sats,
+        "pool_after": new_pool.total_sats
+    })))
 }

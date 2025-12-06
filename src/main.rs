@@ -38,7 +38,7 @@ async fn main() -> Result<()> {
     let refill_rate = std::env::var("REFILL_RATE_SATS_PER_HOUR")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(100);
+        .unwrap_or(60);
 
     // Ensure upload directory exists
     let upload_path = PathBuf::from(&upload_dir);
@@ -94,6 +94,7 @@ async fn main() -> Result<()> {
         .route("/api/stats", get(handlers::get_stats))
         .route("/api/donate/invoice", post(handlers::create_donation_invoice))
         .route("/api/donate/wait/:invoice_and_amount", get(handlers::wait_for_donation))
+        .route("/api/refill/trigger", post(handlers::manual_refill))
         // Static files
         .nest_service("/uploads", ServeDir::new(upload_path))
         // State
