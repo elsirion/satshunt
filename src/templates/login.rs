@@ -2,9 +2,9 @@ use maud::{html, Markup};
 
 pub fn login(error: Option<&str>) -> Markup {
     html! {
-        h1 class="text-4xl font-bold mb-8 text-highlight" { "Login" }
-
         div class="max-w-md mx-auto" {
+            h1 class="text-4xl font-bold mb-8 text-highlight" { "Login" }
+
             form action="/login" method="post"
                 class="bg-secondary rounded-lg p-8 border border-accent-muted space-y-6" {
 
