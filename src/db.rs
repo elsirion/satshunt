@@ -30,6 +30,64 @@ impl Database {
         &self.pool
     }
 
+    // User operations
+    pub async fn create_user(
+        &self,
+        username: String,
+        email: Option<String>,
+        auth_method: AuthMethod,
+    ) -> Result<User> {
+        let id = Uuid::new_v4().to_string();
+        let now = Utc::now();
+        let method_type = auth_method.to_type_string();
+        let method_data = auth_method.to_json()?;
+
+        sqlx::query_as::<_, User>(
+            r#"
+            INSERT INTO users (id, username, email, auth_method, auth_data, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            RETURNING *
+            "#,
+        )
+        .bind(&id)
+        .bind(&username)
+        .bind(&email)
+        .bind(method_type)
+        .bind(&method_data)
+        .bind(now)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(Into::into)
+    }
+
+    pub async fn get_user_by_username(&self, username: &str) -> Result<Option<User>> {
+        sqlx::query_as::<_, User>("SELECT * FROM users WHERE username = ?")
+            .bind(username)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(Into::into)
+    }
+
+    /// Get user by ID - currently unused but will be needed for user profile pages
+    /// and displaying location owner information
+    #[allow(dead_code)]
+    pub async fn get_user_by_id(&self, id: &str) -> Result<Option<User>> {
+        sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = ?")
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(Into::into)
+    }
+
+    pub async fn update_last_login(&self, user_id: &str) -> Result<SqliteQueryResult> {
+        sqlx::query("UPDATE users SET last_login_at = ? WHERE id = ?")
+            .bind(Utc::now())
+            .bind(user_id)
+            .execute(&self.pool)
+            .await
+            .map_err(Into::into)
+    }
+
     // Location operations
     pub async fn create_location(
         &self,
@@ -38,6 +96,7 @@ impl Database {
         longitude: f64,
         description: Option<String>,
         lnurlw_secret: String,
+        user_id: String,
     ) -> Result<Location> {
         let id = Uuid::new_v4().to_string();
         let write_token = Uuid::new_v4().to_string();
@@ -48,9 +107,9 @@ impl Database {
             INSERT INTO locations (
                 id, name, latitude, longitude, description,
                 current_sats, lnurlw_secret,
-                created_at, last_refill_at, write_token, write_token_created_at
+                created_at, last_refill_at, write_token, write_token_created_at, user_id
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             RETURNING *
             "#,
         )
@@ -65,6 +124,7 @@ impl Database {
         .bind(now)
         .bind(&write_token)
         .bind(now)
+        .bind(&user_id)
         .fetch_one(&self.pool)
         .await
         .map_err(Into::into)

@@ -1,4 +1,5 @@
 use crate::{
+    auth::AuthUser,
     db::Database,
     lightning::{LightningService, LnurlCallbackResponse, LnurlWithdrawCallback, LnurlWithdrawResponse},
 };
@@ -21,6 +22,7 @@ pub struct AppState {
 }
 
 pub async fn create_location(
+    auth: AuthUser,
     State(state): State<Arc<AppState>>,
     mut multipart: Multipart,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
@@ -109,7 +111,7 @@ pub async fn create_location(
     // Create location in database
     let location = state
         .db
-        .create_location(name, latitude, longitude, description, lnurlw_secret)
+        .create_location(name, latitude, longitude, description, lnurlw_secret, auth.user_id)
         .await
         .map_err(|e| {
             tracing::error!("Failed to create location: {}", e);

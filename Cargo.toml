@@ -47,6 +47,11 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # UUID
 uuid = { version = "1", features = ["v4", "serde"] }
 
+# Authentication
+argon2 = { version = "0.5", features = ["std"] }
+tower-sessions = "0.13"
+tower-sessions-sqlx-store = { version = "0.14", features = ["sqlite"] }
+
 # Workaround for jemalloc build issues
 [profile.dev.package.tikv-jemalloc-sys]
 opt-level = 1

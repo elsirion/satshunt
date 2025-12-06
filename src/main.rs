@@ -1,3 +1,4 @@
+mod auth;
 mod config;
 mod db;
 mod handlers;
@@ -16,6 +17,8 @@ use config::Config;
 use handlers::api::AppState;
 use std::sync::Arc;
 use tower_http::{services::ServeDir, trace::TraceLayer};
+use tower_sessions::SessionManagerLayer;
+use tower_sessions_sqlx_store::SqliteStore;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
@@ -82,6 +85,12 @@ async fn main() -> Result<()> {
 
     tracing::info!("Refill service started");
 
+    // Set up session store
+    let session_store = SqliteStore::new(db.pool().clone());
+    session_store.migrate().await?;
+
+    let session_layer = SessionManagerLayer::new(session_store);
+
     // Build router
     let app = Router::new()
         // Page routes
@@ -91,6 +100,9 @@ async fn main() -> Result<()> {
         .route("/locations/:id", get(handlers::location_detail_page))
         .route("/setup/:write_token", get(handlers::nfc_setup_page))
         .route("/donate", get(handlers::donate_page))
+        .route("/login", get(handlers::login_page).post(handlers::login))
+        .route("/register", get(handlers::register_page).post(handlers::register))
+        .route("/logout", post(handlers::logout))
         // API routes
         .route("/api/locations", post(handlers::create_location))
         .route("/api/lnurlw/:location_id", get(handlers::lnurlw_endpoint))
@@ -104,8 +116,9 @@ async fn main() -> Result<()> {
         .route("/api/refill/trigger", post(handlers::manual_refill))
         // Static files
         .nest_service("/uploads", ServeDir::new(&uploads_dir))
-        // State
+        // State and middleware
         .with_state(app_state)
+        .layer(session_layer)
         .layer(TraceLayer::new_for_http());
 
     // Start server

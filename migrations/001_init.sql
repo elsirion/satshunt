@@ -48,8 +48,24 @@ CREATE TABLE IF NOT EXISTS scans (
     FOREIGN KEY (location_id) REFERENCES locations(id) ON DELETE CASCADE
 );
 
+-- Create users table
+CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    username TEXT NOT NULL UNIQUE,
+    email TEXT,
+    auth_method TEXT NOT NULL, -- 'password', 'oauth_google', 'oauth_github', etc.
+    auth_data TEXT NOT NULL, -- JSON data specific to auth method (e.g., hashed password)
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_login_at TIMESTAMP
+);
+
+-- Link locations to users
+ALTER TABLE locations ADD COLUMN user_id TEXT NOT NULL REFERENCES users(id);
+
 -- Create indexes
 CREATE INDEX idx_locations_coords ON locations(latitude, longitude);
 CREATE INDEX idx_photos_location ON photos(location_id);
 CREATE INDEX idx_scans_location ON scans(location_id);
 CREATE INDEX idx_scans_time ON scans(scanned_at);
+CREATE INDEX idx_users_username ON users(username);
+CREATE INDEX idx_locations_user ON locations(user_id);
