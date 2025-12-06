@@ -31,7 +31,6 @@ impl Database {
         latitude: f64,
         longitude: f64,
         description: Option<String>,
-        max_sats: i64,
         lnurlw_secret: String,
     ) -> Result<Location> {
         let id = Uuid::new_v4().to_string();
@@ -42,10 +41,10 @@ impl Database {
             r#"
             INSERT INTO locations (
                 id, name, latitude, longitude, description,
-                current_sats, max_sats, lnurlw_secret,
+                current_sats, lnurlw_secret,
                 created_at, last_refill_at, write_token, write_token_created_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             RETURNING *
             "#,
         )
@@ -55,7 +54,6 @@ impl Database {
         .bind(longitude)
         .bind(&description)
         .bind(0) // current_sats starts at 0
-        .bind(max_sats)
         .bind(&lnurlw_secret)
         .bind(now)
         .bind(now)

@@ -39,6 +39,10 @@ async fn main() -> Result<()> {
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(60);
+    let max_sats_per_location = std::env::var("MAX_SATS_PER_LOCATION")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1000);
 
     // Ensure upload directory exists
     let upload_path = PathBuf::from(&upload_dir);
@@ -58,6 +62,7 @@ async fn main() -> Result<()> {
         lightning,
         upload_dir: upload_path.clone(),
         base_url: base_url.clone(),
+        max_sats_per_location,
     });
 
     // Start refill service
@@ -66,6 +71,7 @@ async fn main() -> Result<()> {
         refill::RefillConfig {
             sats_per_hour: refill_rate,
             check_interval_secs: 300, // 5 minutes
+            max_sats_per_location,
         },
     ));
 

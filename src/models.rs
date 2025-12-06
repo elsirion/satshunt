@@ -11,7 +11,6 @@ pub struct Location {
     pub description: Option<String>,
     pub created_at: DateTime<Utc>,
     pub current_sats: i64,
-    pub max_sats: i64,
     pub lnurlw_secret: String,
     pub last_refill_at: DateTime<Utc>,
     pub write_token: Option<String>,
@@ -49,7 +48,6 @@ pub struct CreateLocationRequest {
     pub latitude: f64,
     pub longitude: f64,
     pub description: Option<String>,
-    pub max_sats: i64,
 }
 
 #[derive(Debug, Serialize)]

@@ -1,7 +1,7 @@
 use crate::models::Location;
 use maud::{html, Markup, PreEscaped};
 
-pub fn map(locations: &[Location]) -> Markup {
+pub fn map(locations: &[Location], max_sats_per_location: i64) -> Markup {
     html! {
         h1 class="text-4xl font-bold mb-8 text-yellow-400" { "🗺️ Treasure Map" }
 
@@ -19,7 +19,7 @@ pub fn map(locations: &[Location]) -> Markup {
             h2 class="text-2xl font-bold mb-4 text-yellow-400" { "All Locations" }
             div class="grid gap-4" {
                 @for location in locations {
-                    (location_card(location))
+                    (location_card(location, max_sats_per_location))
                 }
                 @if locations.is_empty() {
                     p class="text-slate-400 text-center py-8" {
@@ -55,10 +55,11 @@ pub fn map(locations: &[Location]) -> Markup {
 
             // Add locations as markers
             const locations = {locations};
+            const maxSatsPerLocation = {max_sats_per_location};
             let bounds = [];
 
             locations.forEach(loc => {{
-                const satsPercent = (loc.current_sats / loc.max_sats) * 100;
+                const satsPercent = (loc.current_sats / maxSatsPerLocation) * 100;
                 const color = satsPercent > 50 ? '#22c55e' : satsPercent > 20 ? '#eab308' : '#ef4444';
 
                 const marker = L.circleMarker([loc.latitude, loc.longitude], {{
@@ -73,7 +74,7 @@ pub fn map(locations: &[Location]) -> Markup {
                 marker.bindPopup(`
                     <div style="color: #0f172a;">
                         <h3 style="font-weight: bold; margin-bottom: 4px;">${{loc.name}}</h3>
-                        <p style="margin: 4px 0;">⚡ ${{loc.current_sats}} / ${{loc.max_sats}} sats</p>
+                        <p style="margin: 4px 0;">⚡ ${{loc.current_sats}} / ${{maxSatsPerLocation}} sats</p>
                         <a href="/locations/${{loc.id}}" style="color: #3b82f6; text-decoration: underline;">View details</a>
                     </div>
                 `);
@@ -85,13 +86,16 @@ pub fn map(locations: &[Location]) -> Markup {
                 map.fitBounds(bounds, {{ padding: [50, 50] }});
             }}
         </script>
-        "#, locations = serde_json::to_string(locations).unwrap_or_else(|_| "[]".to_string()))))
+        "#,
+        locations = serde_json::to_string(locations).unwrap_or_else(|_| "[]".to_string()),
+        max_sats_per_location = max_sats_per_location
+        )))
     }
 }
 
-fn location_card(location: &Location) -> Markup {
-    let sats_percent = if location.max_sats > 0 {
-        (location.current_sats as f64 / location.max_sats as f64 * 100.0) as i32
+fn location_card(location: &Location, max_sats_per_location: i64) -> Markup {
+    let sats_percent = if max_sats_per_location > 0 {
+        (location.current_sats as f64 / max_sats_per_location as f64 * 100.0) as i32
     } else {
         0
     };
@@ -122,7 +126,7 @@ fn location_card(location: &Location) -> Markup {
                         (location.current_sats) " ⚡"
                     }
                     div class="text-slate-400 text-sm" {
-                        "/ " (location.max_sats) " sats"
+                        "/ " (max_sats_per_location) " sats"
                     }
                 }
             }

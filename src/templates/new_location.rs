@@ -28,18 +28,6 @@ pub fn new_location() -> Markup {
                         placeholder="Behind the large oak tree near the fountain..." {}
                 }
 
-                // Max sats
-                div {
-                    label for="max_sats" class="block mb-2 text-sm font-medium text-slate-200" {
-                        "Maximum Sats"
-                    }
-                    input type="number" id="max_sats" name="max_sats" required min="100" value="1000"
-                        class="bg-slate-700 border border-slate-600 text-slate-200 text-sm rounded-lg focus:ring-yellow-500 focus:border-yellow-500 block w-full p-2.5";
-                    p class="mt-1 text-sm text-slate-400" {
-                        "The maximum number of sats this location can hold"
-                    }
-                }
-
                 // Coordinates
                 div class="grid md:grid-cols-2 gap-4" {
                     div {

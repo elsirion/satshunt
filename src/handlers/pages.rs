@@ -24,7 +24,7 @@ pub async fn map_page(State(state): State<Arc<AppState>>) -> Result<Html<String>
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    let content = templates::map(&locations);
+    let content = templates::map(&locations, state.max_sats_per_location);
     let page = templates::base("Map", content);
 
     Ok(Html(page.into_string()))
@@ -55,7 +55,7 @@ pub async fn location_detail_page(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    let content = templates::location_detail(&location, &photos, &state.base_url);
+    let content = templates::location_detail(&location, &photos, &state.base_url, state.max_sats_per_location);
     let page = templates::base(&location.name, content);
 
     Ok(Html(page.into_string()))

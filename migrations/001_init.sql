@@ -9,7 +9,6 @@ CREATE TABLE IF NOT EXISTS locations (
 
     -- Lightning/sats configuration
     current_sats INTEGER NOT NULL DEFAULT 0,
-    max_sats INTEGER NOT NULL,
     lnurlw_secret TEXT NOT NULL UNIQUE,
 
     -- Last refill tracking

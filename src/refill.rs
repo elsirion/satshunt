@@ -10,6 +10,8 @@ pub struct RefillConfig {
     pub sats_per_hour: i64,
     /// How often to run the refill check (in seconds)
     pub check_interval_secs: u64,
+    /// Maximum sats per location (global cap)
+    pub max_sats_per_location: i64,
 }
 
 impl Default for RefillConfig {
@@ -17,6 +19,7 @@ impl Default for RefillConfig {
         Self {
             sats_per_hour: 100,
             check_interval_secs: 300, // 5 minutes
+            max_sats_per_location: 1000,
         }
     }
 }
@@ -30,6 +33,12 @@ pub struct RefillService {
 impl RefillService {
     pub fn new(db: Arc<Database>, config: RefillConfig) -> Self {
         Self { db, config }
+    }
+
+    /// Get the maximum sats per location from config
+    #[allow(dead_code)]
+    pub fn max_sats_per_location(&self) -> i64 {
+        self.config.max_sats_per_location
     }
 
     /// Start the refill service
@@ -65,7 +74,7 @@ impl RefillService {
             // Calculate refill amount (1 sat per minute)
             let sats_per_minute = (self.config.sats_per_hour as f64 / 60.0).round() as i64;
             let refill_amount = minutes_since_refill * sats_per_minute;
-            let new_balance = (location.current_sats + refill_amount).min(location.max_sats);
+            let new_balance = (location.current_sats + refill_amount).min(self.config.max_sats_per_location);
             let actual_refill = new_balance - location.current_sats;
 
             if actual_refill <= 0 {
@@ -95,7 +104,7 @@ impl RefillService {
                 location.name,
                 actual_refill,
                 new_balance,
-                location.max_sats
+                self.config.max_sats_per_location
             );
         }
 

@@ -17,6 +17,7 @@ pub struct AppState {
     pub lightning: LightningService,
     pub upload_dir: PathBuf,
     pub base_url: String,
+    pub max_sats_per_location: i64,
 }
 
 pub async fn create_location(
@@ -29,7 +30,6 @@ pub async fn create_location(
     let mut latitude = None;
     let mut longitude = None;
     let mut description = None;
-    let mut max_sats = None;
     let mut photo_files = Vec::new();
 
     // Parse multipart form data
@@ -70,10 +70,6 @@ pub async fn create_location(
                     description = Some(text);
                 }
             }
-            "max_sats" => {
-                let text = field.text().await.map_err(|_| StatusCode::BAD_REQUEST)?;
-                max_sats = Some(text.parse::<i64>().map_err(|_| StatusCode::BAD_REQUEST)?);
-            }
             "photos" => {
                 if let Some(filename) = field.file_name() {
                     let filename = filename.to_string();
@@ -87,8 +83,8 @@ pub async fn create_location(
 
     // Log what we received
     tracing::info!(
-        "Parsed form data - name: {:?}, lat: {:?}, lng: {:?}, desc: {:?}, max_sats: {:?}, photos: {}",
-        name, latitude, longitude, description, max_sats, photo_files.len()
+        "Parsed form data - name: {:?}, lat: {:?}, lng: {:?}, desc: {:?}, photos: {}",
+        name, latitude, longitude, description, photo_files.len()
     );
 
     // Validate required fields
@@ -104,12 +100,8 @@ pub async fn create_location(
         tracing::error!("Missing required field: longitude");
         StatusCode::BAD_REQUEST
     })?;
-    let max_sats = max_sats.ok_or_else(|| {
-        tracing::error!("Missing required field: max_sats");
-        StatusCode::BAD_REQUEST
-    })?;
 
-    tracing::info!("Creating location: {} at ({}, {}) with {} sats", name, latitude, longitude, max_sats);
+    tracing::info!("Creating location: {} at ({}, {}) with max {} sats", name, latitude, longitude, state.max_sats_per_location);
 
     // Generate LNURL secret
     let lnurlw_secret = LightningService::generate_lnurlw_secret();
@@ -117,7 +109,7 @@ pub async fn create_location(
     // Create location in database
     let location = state
         .db
-        .create_location(name, latitude, longitude, description, max_sats, lnurlw_secret)
+        .create_location(name, latitude, longitude, description, lnurlw_secret)
         .await
         .map_err(|e| {
             tracing::error!("Failed to create location: {}", e);
@@ -414,7 +406,7 @@ pub async fn manual_refill(State(state): State<Arc<AppState>>) -> Result<Json<se
 
         // Calculate refill amount (1 sat per minute)
         let refill_amount = minutes_since_refill;
-        let new_balance = (location.current_sats + refill_amount).min(location.max_sats);
+        let new_balance = (location.current_sats + refill_amount).min(state.max_sats_per_location);
         let actual_refill = new_balance - location.current_sats;
 
         if actual_refill <= 0 {
@@ -452,7 +444,7 @@ pub async fn manual_refill(State(state): State<Arc<AppState>>) -> Result<Json<se
             location.name,
             actual_refill,
             new_balance,
-            location.max_sats
+            state.max_sats_per_location
         );
     }
 

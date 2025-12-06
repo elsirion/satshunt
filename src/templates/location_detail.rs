@@ -1,9 +1,9 @@
 use crate::models::{Location, Photo};
 use maud::{html, Markup, PreEscaped};
 
-pub fn location_detail(location: &Location, photos: &[Photo], base_url: &str) -> Markup {
-    let sats_percent = if location.max_sats > 0 {
-        (location.current_sats as f64 / location.max_sats as f64 * 100.0) as i32
+pub fn location_detail(location: &Location, photos: &[Photo], base_url: &str, max_sats_per_location: i64) -> Markup {
+    let sats_percent = if max_sats_per_location > 0 {
+        (location.current_sats as f64 / max_sats_per_location as f64 * 100.0) as i32
     } else {
         0
     };
@@ -34,7 +34,7 @@ pub fn location_detail(location: &Location, photos: &[Photo], base_url: &str) ->
                     div class="bg-slate-700 rounded p-4" {
                         div class="text-sm text-slate-400 mb-1" { "Max Capacity" }
                         div class="text-2xl font-bold text-slate-300" {
-                            (location.max_sats) " ⚡"
+                            (max_sats_per_location) " ⚡"
                         }
                     }
                     div class="bg-slate-700 rounded p-4" {
