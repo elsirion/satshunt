@@ -1,8 +1,9 @@
 use crate::models::*;
 use anyhow::Result;
 use chrono::Utc;
-use sqlx::{SqlitePool, sqlite::SqliteQueryResult};
+use sqlx::{SqlitePool, sqlite::{SqliteConnectOptions, SqliteQueryResult}};
 use uuid::Uuid;
+use std::str::FromStr;
 
 #[derive(Clone)]
 pub struct Database {
@@ -11,9 +12,14 @@ pub struct Database {
 
 impl Database {
     pub async fn new(database_url: &str) -> Result<Self> {
-        let pool = SqlitePool::connect(database_url).await?;
+        // Configure SQLite to create the database file if it doesn't exist
+        let options = SqliteConnectOptions::from_str(database_url)?
+            .create_if_missing(true);
 
-        // Run migrations
+        // Connect to the database
+        let pool = SqlitePool::connect_with(options).await?;
+
+        // Run migrations to set up the schema
         sqlx::migrate!("./migrations").run(&pool).await?;
 
         Ok(Self { pool })

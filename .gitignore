@@ -32,3 +32,5 @@ Cargo.lock
 # OS
 .DS_Store
 Thumbs.db
+
+/data

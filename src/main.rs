@@ -1,3 +1,4 @@
+mod config;
 mod db;
 mod handlers;
 mod lightning;
@@ -10,8 +11,10 @@ use axum::{
     routing::{get, post},
     Router,
 };
+use clap::Parser;
+use config::Config;
 use handlers::api::AppState;
-use std::{path::PathBuf, sync::Arc};
+use std::sync::Arc;
 use tower_http::{services::ServeDir, trace::TraceLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -26,52 +29,50 @@ async fn main() -> Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    // Load environment variables
+    // Load environment variables from .env file
     dotenvy::dotenv().ok();
 
-    // Configuration
-    let host = std::env::var("HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
-    let port = std::env::var("PORT").unwrap_or_else(|_| "3000".to_string());
-    let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite:satshunt.db".to_string());
-    let upload_dir = std::env::var("UPLOAD_DIR").unwrap_or_else(|_| "./uploads".to_string());
-    let base_url = std::env::var("BASE_URL").unwrap_or_else(|_| format!("http://{}:{}", host, port));
-    let refill_rate = std::env::var("REFILL_RATE_SATS_PER_HOUR")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(60);
-    let max_sats_per_location = std::env::var("MAX_SATS_PER_LOCATION")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(1000);
+    // Parse configuration from CLI args and environment variables
+    let config = Config::parse();
 
-    // Ensure upload directory exists
-    let upload_path = PathBuf::from(&upload_dir);
-    tokio::fs::create_dir_all(&upload_path).await?;
+    // Get derived paths
+    let base_url = config.get_base_url();
+    let database_url = config.get_database_url();
+    let uploads_dir = config.get_uploads_dir();
+    let blitzi_dir = config.get_blitzi_dir();
 
-    // Initialize database
+    // Ensure directories exist
+    tokio::fs::create_dir_all(&config.data_dir).await?;
+    tokio::fs::create_dir_all(&uploads_dir).await?;
+    tokio::fs::create_dir_all(&blitzi_dir).await?;
+    tracing::info!("📁 Data directory: {}", config.data_dir.display());
+    tracing::info!("📁 Uploads directory: {}", uploads_dir.display());
+    tracing::info!("📁 Blitzi directory: {}", blitzi_dir.display());
+
+    // Initialize database (this will also create the database file)
     let db = Arc::new(db::Database::new(&database_url).await?);
-    tracing::info!("Database initialized");
+    tracing::info!("💾 Database initialized: {}", database_url);
 
     // Initialize Lightning service
-    let lightning = lightning::LightningService::new().await?;
+    let lightning = lightning::LightningService::new(&blitzi_dir).await?;
     tracing::info!("Lightning service initialized");
 
     // Create app state
     let app_state = Arc::new(AppState {
         db: (*db).clone(),
         lightning,
-        upload_dir: upload_path.clone(),
+        upload_dir: uploads_dir.clone(),
         base_url: base_url.clone(),
-        max_sats_per_location,
+        max_sats_per_location: config.max_sats_per_location,
     });
 
     // Start refill service
     let refill_service = Arc::new(refill::RefillService::new(
         db.clone(),
         refill::RefillConfig {
-            sats_per_hour: refill_rate,
-            check_interval_secs: 300, // 5 minutes
-            max_sats_per_location,
+            sats_per_hour: config.refill_rate_sats_per_hour,
+            check_interval_secs: config.refill_check_interval_secs,
+            max_sats_per_location: config.max_sats_per_location,
         },
     ));
 
@@ -102,17 +103,19 @@ async fn main() -> Result<()> {
         .route("/api/donate/wait/:invoice_and_amount", get(handlers::wait_for_donation))
         .route("/api/refill/trigger", post(handlers::manual_refill))
         // Static files
-        .nest_service("/uploads", ServeDir::new(upload_path))
+        .nest_service("/uploads", ServeDir::new(&uploads_dir))
         // State
         .with_state(app_state)
         .layer(TraceLayer::new_for_http());
 
     // Start server
-    let addr = format!("{}:{}", host, port);
+    let addr = format!("{}:{}", config.host, config.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
 
     tracing::info!("🚀 SatShunt server listening on http://{}", addr);
     tracing::info!("📍 Base URL: {}", base_url);
+    tracing::info!("⚙️  Refill rate: {} sats/hour", config.refill_rate_sats_per_hour);
+    tracing::info!("⚙️  Max sats per location: {}", config.max_sats_per_location);
 
     axum::serve(listener, app).await?;
 

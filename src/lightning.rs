@@ -1,6 +1,7 @@
 use anyhow::Result;
-use blitzi::{Blitzi, Amount};
+use blitzi::{Blitzi, BlitziBuilder, Amount};
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 
 /// Lightning service for managing payments
 pub struct LightningService {
@@ -8,9 +9,12 @@ pub struct LightningService {
 }
 
 impl LightningService {
-    pub async fn new() -> Result<Self> {
-        let client = Blitzi::new().await?;
-        tracing::info!("Blitzi Lightning client initialized");
+    pub async fn new(data_dir: &Path) -> Result<Self> {
+        let client = BlitziBuilder::default()
+            .datadir(data_dir)
+            .build()
+            .await?;
+        tracing::info!("Blitzi Lightning client initialized with data dir: {}", data_dir.display());
         Ok(Self { client })
     }
 
