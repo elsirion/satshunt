@@ -15,9 +15,91 @@ pub fn location_detail(location: &Location, photos: &[Photo], base_url: &str, ma
                 "← Back to map"
             }
 
+            // Status banner for non-active locations
+            @if !location.is_active() {
+                div class={
+                    "bg-secondary rounded-lg p-6 mb-6 border-2 "
+                    @if location.is_created() { "border-yellow-600" } @else { "border-blue-600" }
+                } {
+                    div class="flex items-start gap-4" {
+                        div class="flex-shrink-0" {
+                            @if location.is_created() {
+                                i class="fa-solid fa-clock text-4xl text-yellow-500" {}
+                            } @else {
+                                i class="fa-solid fa-hourglass-half text-4xl text-blue-500" {}
+                            }
+                        }
+                        div class="flex-1" {
+                            h3 class={
+                                "text-xl font-bold mb-2 "
+                                @if location.is_created() { "text-yellow-400" } @else { "text-blue-400" }
+                            } {
+                                @if location.is_created() {
+                                    "Location Not Yet Programmed"
+                                } @else {
+                                    "Location Waiting for Activation"
+                                }
+                            }
+                            @if location.is_created() {
+                                p class="text-secondary mb-3" {
+                                    "This location has been created but the NFC sticker has not been programmed yet. "
+                                    "It will not appear on the public map until it's programmed and activated."
+                                }
+                                @if let Some(token) = &location.write_token {
+                                    @if !location.write_token_used {
+                                        a href={"/setup/" (token)}
+                                            class="inline-flex items-center px-4 py-2 bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg font-semibold transition-colors" {
+                                            i class="fa-solid fa-microchip mr-2" {}
+                                            "Program NFC Sticker"
+                                        }
+                                    }
+                                }
+                            } @else {
+                                p class="text-secondary mb-3" {
+                                    "The NFC sticker has been programmed. This location will become active and appear on the public map "
+                                    "after the first successful scan and withdrawal."
+                                }
+                                @if let Some(token) = &location.write_token {
+                                    @if !location.write_token_used {
+                                        a href={"/setup/" (token)}
+                                            class="inline-flex items-center px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold transition-colors" {
+                                            i class="fa-solid fa-redo mr-2" {}
+                                            "Re-program NFC Sticker"
+                                        }
+                                        p class="text-secondary text-sm mt-2 italic" {
+                                            "If the NFC write failed, you can try again with the same keys"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // Location header
             div class="bg-secondary rounded-lg p-8 mb-8 border border-accent-muted" {
-                h1 class="text-4xl font-bold mb-4 text-highlight" { (location.name) }
+                div class="flex justify-between items-start mb-4" {
+                    h1 class="text-4xl font-bold text-highlight" { (location.name) }
+
+                    // Status badge
+                    @if location.is_active() {
+                        div class="px-3 py-1 rounded-full text-white text-sm font-semibold bg-green-600" {
+                            i class="fa-solid fa-check mr-1" {}
+                            "Active"
+                        }
+                    } @else if location.is_programmed() {
+                        div class="px-3 py-1 rounded-full text-white text-sm font-semibold bg-blue-600" {
+                            i class="fa-solid fa-microchip mr-1" {}
+                            "Programmed"
+                        }
+                    } @else {
+                        div class="px-3 py-1 rounded-full text-white text-sm font-semibold bg-yellow-600" {
+                            i class="fa-solid fa-clock mr-1" {}
+                            "Created"
+                        }
+                    }
+                }
 
                 @if let Some(desc) = &location.description {
                     p class="text-secondary mb-6" { (desc) }
@@ -93,9 +175,21 @@ pub fn location_detail(location: &Location, photos: &[Photo], base_url: &str, ma
                     i class="fa-solid fa-flask mr-2" {}
                     "Testing - LNURL Withdraw"
                 }
-                p class="text-secondary mb-4" {
-                    "Scan this QR code with your Lightning wallet to test withdrawing sats from this location. "
-                    "In production, this would be written to an NFC tag."
+
+                @if location.is_active() {
+                    p class="text-secondary mb-4" {
+                        "Scan this QR code with your Lightning wallet to test withdrawing sats from this location. "
+                        "This is the same LNURL that's programmed on the NFC tag."
+                    }
+                } @else {
+                    p class="text-secondary mb-4" {
+                        "This is a preview of the LNURL-withdraw that will be available once the location is active. "
+                        @if location.is_created() {
+                            "You need to program the NFC sticker first."
+                        } @else {
+                            "The NFC sticker needs to be scanned once to activate this location."
+                        }
+                    }
                 }
 
                 @if location.current_sats == 0 {

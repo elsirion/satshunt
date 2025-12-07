@@ -90,6 +90,21 @@ pub struct Location {
     pub write_token_used: bool,
     pub write_token_created_at: Option<DateTime<Utc>>,
     pub user_id: String,
+    pub status: String, // 'created', 'programmed', 'active'
+}
+
+impl Location {
+    pub fn is_created(&self) -> bool {
+        self.status == "created"
+    }
+
+    pub fn is_programmed(&self) -> bool {
+        self.status == "programmed"
+    }
+
+    pub fn is_active(&self) -> bool {
+        self.status == "active"
+    }
 }
 
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]

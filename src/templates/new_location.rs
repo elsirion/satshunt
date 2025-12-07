@@ -170,8 +170,8 @@ pub fn new_location() -> Markup {
 
                     if (response.ok) {
                         const result = await response.json();
-                        // Redirect to the NFC setup page using the write_token
-                        window.location.href = '/setup/' + result.write_token;
+                        // Redirect to the profile page where user can program NFC
+                        window.location.href = '/profile';
                     } else {
                         const error = await response.text();
                         alert('Error creating location: ' + error);

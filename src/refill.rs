@@ -54,9 +54,9 @@ impl RefillService {
         }
     }
 
-    /// Refill all locations that are due for a refill
+    /// Refill all active locations that are due for a refill
     async fn refill_locations(&self) -> Result<()> {
-        let locations = self.db.list_locations().await?;
+        let locations = self.db.list_active_locations().await?;
         let donation_pool = self.db.get_donation_pool().await?;
 
         let now = Utc::now();

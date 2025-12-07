@@ -119,6 +119,38 @@ pub async fn create_location(
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
+    // Give the location initial 5 sats from donation pool for activation
+    const INITIAL_SATS: i64 = 5;
+
+    // Check if donation pool has enough
+    let donation_pool = state.db.get_donation_pool().await.map_err(|e| {
+        tracing::error!("Failed to get donation pool: {}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    if donation_pool.total_sats >= INITIAL_SATS {
+        // Deduct from donation pool
+        state.db.subtract_from_donation_pool(INITIAL_SATS).await.map_err(|e| {
+            tracing::error!("Failed to subtract from donation pool: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+        // Add to location
+        state.db.update_location_sats(&location.id, INITIAL_SATS).await.map_err(|e| {
+            tracing::error!("Failed to update location sats: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+        tracing::info!("Gave {} initial sats to new location: {}", INITIAL_SATS, location.name);
+    } else {
+        tracing::warn!(
+            "Donation pool too low ({} sats) to give initial {} sats to location: {}",
+            donation_pool.total_sats,
+            INITIAL_SATS,
+            location.name
+        );
+    }
+
     // Save uploaded photos
     for (filename, data) in photo_files {
         let unique_filename = format!("{}_{}", uuid::Uuid::new_v4(), filename);
@@ -239,6 +271,32 @@ pub async fn lnurlw_callback(
             tracing::error!("Failed to record scan: {}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
+
+    // Activate location on first successful scan if it's not already active
+    if !location.is_active() {
+        state
+            .db
+            .update_location_status(&location_id, "active")
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to activate location: {}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
+
+        // Mark write token as used now that location is activated
+        if let Some(token) = &location.write_token {
+            state
+                .db
+                .mark_write_token_used(token)
+                .await
+                .map_err(|e| {
+                    tracing::error!("Failed to mark write token as used: {}", e);
+                    StatusCode::INTERNAL_SERVER_ERROR
+                })?;
+        }
+
+        tracing::info!("Location {} activated on first successful scan", location.name);
+    }
 
     tracing::info!(
         "Withdrawal from location {} for {} sats",
@@ -453,12 +511,7 @@ pub async fn boltcard_keys(
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
-    let base_url = {
-        let mut url = url::Url::parse(&state.base_url).expect("Failed to parse base URL");
-        url.set_scheme("lnurlw").expect("Failed to set scheme");
-        url.to_string()
-    };
-    let lnurlw_url = format!("{}/api/lnurlw/{}", base_url, location.id);
+    let lnurlw_url = format!("{}/api/lnurlw/{}", state.base_url.replace("https://", "lnurlw://").replace("http://", "lnurlw://"), location.id);
 
 
     // Handle program action (UID provided)
@@ -544,15 +597,17 @@ pub async fn boltcard_keys(
             existing_card = Some(card);
         }
 
-        // Mark write token as used
+        // Mark location as programmed (but don't mark token as used yet - allow retries)
         state
             .db
-            .mark_write_token_used(&write_token)
+            .update_location_status(&location.id, "programmed")
             .await
             .map_err(|e| {
-                tracing::error!("Failed to mark write token as used: {}", e);
+                tracing::error!("Failed to update location status: {}", e);
                 StatusCode::INTERNAL_SERVER_ERROR
             })?;
+
+        tracing::info!("Location {} marked as programmed (write token still valid for retries)", location.name);
     }
     // Handle reset action (LNURLW provided)
     else if let Some(lnurlw) = &payload.lnurlw {
@@ -621,8 +676,8 @@ pub async fn boltcard_keys(
 pub async fn manual_refill(State(state): State<Arc<AppState>>) -> Result<Json<serde_json::Value>, StatusCode> {
     tracing::info!("Manual refill triggered");
 
-    let locations = state.db.list_locations().await.map_err(|e| {
-        tracing::error!("Failed to list locations: {}", e);
+    let locations = state.db.list_active_locations().await.map_err(|e| {
+        tracing::error!("Failed to list active locations: {}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 

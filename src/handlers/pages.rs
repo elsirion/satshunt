@@ -49,8 +49,8 @@ pub async fn map_page(
     State(state): State<Arc<AppState>>,
     opt_auth: OptionalAuthUser,
 ) -> Result<Html<String>, StatusCode> {
-    let locations = state.db.list_locations().await.map_err(|e| {
-        tracing::error!("Failed to get locations: {}", e);
+    let locations = state.db.list_active_locations().await.map_err(|e| {
+        tracing::error!("Failed to get active locations: {}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 

@@ -107,9 +107,9 @@ impl Database {
             INSERT INTO locations (
                 id, name, latitude, longitude, description,
                 current_sats, lnurlw_secret,
-                created_at, last_refill_at, write_token, write_token_created_at, user_id
+                created_at, last_refill_at, write_token, write_token_created_at, user_id, status
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             RETURNING *
             "#,
         )
@@ -125,6 +125,7 @@ impl Database {
         .bind(&write_token)
         .bind(now)
         .bind(&user_id)
+        .bind("created") // status starts as 'created'
         .fetch_one(&self.pool)
         .await
         .map_err(Into::into)
@@ -140,7 +141,7 @@ impl Database {
 
     pub async fn get_location_by_write_token(&self, token: &str) -> Result<Option<Location>> {
         sqlx::query_as::<_, Location>(
-            "SELECT * FROM locations WHERE write_token = ? AND write_token_used = 0"
+            "SELECT * FROM locations WHERE write_token = ? AND status != 'active'"
         )
         .bind(token)
         .fetch_optional(&self.pool)
@@ -157,11 +158,22 @@ impl Database {
             .map_err(Into::into)
     }
 
+    /// List all locations regardless of status - useful for admin functionality
+    #[allow(dead_code)]
     pub async fn list_locations(&self) -> Result<Vec<Location>> {
         sqlx::query_as::<_, Location>("SELECT * FROM locations ORDER BY created_at DESC")
             .fetch_all(&self.pool)
             .await
             .map_err(Into::into)
+    }
+
+    pub async fn list_active_locations(&self) -> Result<Vec<Location>> {
+        sqlx::query_as::<_, Location>(
+            "SELECT * FROM locations WHERE status = 'active' ORDER BY created_at DESC"
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(Into::into)
     }
 
     pub async fn get_locations_by_user(&self, user_id: &str) -> Result<Vec<Location>> {
@@ -186,6 +198,15 @@ impl Database {
     pub async fn update_last_refill(&self, id: &str) -> Result<SqliteQueryResult> {
         sqlx::query("UPDATE locations SET last_refill_at = ? WHERE id = ?")
             .bind(Utc::now())
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(Into::into)
+    }
+
+    pub async fn update_location_status(&self, id: &str, status: &str) -> Result<SqliteQueryResult> {
+        sqlx::query("UPDATE locations SET status = ? WHERE id = ?")
+            .bind(status)
             .bind(id)
             .execute(&self.pool)
             .await
@@ -276,12 +297,16 @@ impl Database {
 
     // Stats operations
     pub async fn get_stats(&self) -> Result<Stats> {
-        let total_locations: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM locations")
+        let total_locations: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM locations WHERE status = 'active'"
+        )
             .fetch_one(&self.pool)
             .await?;
 
         let total_sats_available: Option<i64> =
-            sqlx::query_scalar("SELECT SUM(current_sats) FROM locations")
+            sqlx::query_scalar(
+                "SELECT SUM(current_sats) FROM locations WHERE status = 'active'"
+            )
                 .fetch_one(&self.pool)
                 .await?;
 

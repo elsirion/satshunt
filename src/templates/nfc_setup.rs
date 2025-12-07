@@ -2,7 +2,7 @@ use crate::models::Location;
 use maud::{html, Markup, PreEscaped};
 
 pub fn nfc_setup(location: &Location, write_token: &str, base_url: &str) -> Markup {
-    let lnurlw_url = format!("{}/api/lnurlw/{}", base_url, location.id);
+    let _lnurlw_url = format!("{}/api/lnurlw/{}", base_url, location.id);
     let _setup_url = format!("{}/setup/{}", base_url, write_token);
 
     // Generate Boltcard deep links
@@ -97,12 +97,12 @@ pub fn nfc_setup(location: &Location, write_token: &str, base_url: &str) -> Mark
                     }
                     div class="mt-4 text-center" {
                         div id="qrcode" class="mx-auto mb-4 flex justify-center" {}
-                        p class="text-gray-600 text-sm mb-2" { "Scan with your NFC writing app" }
+                        p class="text-gray-600 text-sm mb-2" { "Scan with Boltcard NFC Programmer app" }
 
                         div class="mt-4" {
-                            p class="text-sm font-semibold text-gray-700 mb-2" { "LNURL (for manual entry):" }
+                            p class="text-sm font-semibold text-gray-700 mb-2" { "Keys Request URL (for manual entry):" }
                             div class="p-3 bg-gray-100 rounded text-xs font-mono break-all text-gray-800" {
-                                (lnurlw_url)
+                                (keys_request_url)
                             }
                         }
                     }
@@ -115,8 +115,9 @@ pub fn nfc_setup(location: &Location, write_token: &str, base_url: &str) -> Mark
                         "Important"
                     }
                     ul class="list-disc list-inside text-sm space-y-1" {
-                        li { "This setup link can only be used once" }
-                        li { "After writing the NFC sticker, this page will no longer be accessible" }
+                        li { "You can retry programming if the NFC write fails" }
+                        li { "The same keys will be used for retries until the location is activated" }
+                        li { "This link becomes invalid after the first successful scan of the NFC sticker" }
                         li { "Make sure to test the NFC sticker before leaving the location" }
                     }
                 }
@@ -153,7 +154,7 @@ pub fn nfc_setup(location: &Location, write_token: &str, base_url: &str) -> Mark
                         height: 256,
                         colorDark: '#000000',
                         colorLight: '#ffffff',
-                        correctLevel: QRCode.CorrectLevel.H
+                        correctLevel: QRCode.CorrectLevel.M
                     }});
                     qrGenerated = true;
                 }}
@@ -172,6 +173,6 @@ pub fn nfc_setup(location: &Location, write_token: &str, base_url: &str) -> Mark
             // Also generate immediately in case details are opened by default
             setTimeout(generateQR, 500);
         </script>
-        "#, lnurlw_url)))
+        "#, boltcard_program_link)))
     }
 }

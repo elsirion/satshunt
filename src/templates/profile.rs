@@ -57,50 +57,109 @@ fn location_card(location: &Location, max_sats_per_location: i64) -> Markup {
         "text-error"
     };
 
+    // Determine status badge and color
+    let (status_text, status_color, status_icon) = match location.status.as_str() {
+        "created" => ("Created", "bg-yellow-600", "fa-solid fa-clock"),
+        "programmed" => ("Programmed", "bg-blue-600", "fa-solid fa-microchip"),
+        "active" => ("Active", "bg-green-600", "fa-solid fa-check"),
+        _ => ("Unknown", "bg-gray-600", "fa-solid fa-question"),
+    };
+
     html! {
-        a href={"/locations/" (location.id)}
-            class="card-interactive" {
-            div class="flex flex-col md:flex-row md:justify-between md:items-center gap-4" {
-                // Left: Location info
-                div class="flex-1" {
-                    h3 class="text-xl font-semibold text-highlight mb-2" { (location.name) }
-                    @if let Some(desc) = &location.description {
-                        p class="text-secondary text-sm mb-2 line-clamp-2" { (desc) }
-                    }
-                    div class="flex items-center gap-4 text-sm text-muted" {
-                        span {
-                            i class="fa-solid fa-location-dot mr-1" {}
-                            (format!("{:.4}, {:.4}", location.latitude, location.longitude))
+        div class="bg-secondary rounded-lg p-6 border border-accent-muted hover:border-accent transition-colors" {
+            div class="flex flex-col gap-4" {
+                // Header with name and status
+                div class="flex justify-between items-start gap-4" {
+                    div class="flex-1" {
+                        h3 class="text-xl font-semibold text-highlight mb-2" { (location.name) }
+                        @if let Some(desc) = &location.description {
+                            p class="text-secondary text-sm mb-2 line-clamp-2" { (desc) }
                         }
-                        span {
-                            i class="fa-solid fa-calendar mr-1" {}
-                            (location.created_at.format("%b %d, %Y").to_string())
+                    }
+                    div class=(format!("px-3 py-1 rounded-full text-white text-sm font-semibold {}", status_color)) {
+                        i class=(format!("{} mr-1", status_icon)) {}
+                        (status_text)
+                    }
+                }
+
+                // Location info
+                div class="flex items-center gap-4 text-sm text-muted" {
+                    span {
+                        i class="fa-solid fa-location-dot mr-1" {}
+                        (format!("{:.4}, {:.4}", location.latitude, location.longitude))
+                    }
+                    span {
+                        i class="fa-solid fa-calendar mr-1" {}
+                        (location.created_at.format("%b %d, %Y").to_string())
+                    }
+                }
+
+                // Stats (only show for active locations)
+                @if location.is_active() {
+                    div class="flex justify-between items-center pt-4 border-t border-accent-muted" {
+                        div class="text-right" {
+                            div class=(format!("text-2xl font-bold {}", color_class)) {
+                                (location.current_sats) " "
+                                i class="fa-solid fa-bolt" {}
+                            }
+                            div class="text-muted text-sm" {
+                                "/ " (max_sats_per_location) " sats"
+                            }
+                        }
+
+                        // Progress bar
+                        div class="flex-1 max-w-xs ml-4" {
+                            div class={
+                                "progress "
+                                @if sats_percent > 50 { "progress-success" }
+                                @else if sats_percent > 20 { "progress-warning" }
+                                @else { "progress-error" }
+                            } {
+                                div class="progress-bar" style=(format!("width: {}%", sats_percent)) {}
+                            }
                         }
                     }
                 }
 
-                // Right: Stats
-                div class="flex md:flex-col gap-4 md:gap-2 md:items-end" {
-                    div class="text-right" {
-                        div class=(format!("text-2xl font-bold {}", color_class)) {
-                            (location.current_sats) " "
-                            i class="fa-solid fa-bolt" {}
+                // Action buttons based on status
+                div class="flex gap-2 pt-4 border-t border-accent-muted" {
+                    @if location.is_created() || location.is_programmed() {
+                        // Location needs to be programmed or can retry programming
+                        @if let Some(token) = &location.write_token {
+                            @if !location.write_token_used {
+                                a href={"/setup/" (token)}
+                                    class="btn-primary flex-1 text-center" {
+                                    i class="fa-solid fa-microchip mr-2" {}
+                                    @if location.is_created() {
+                                        "Program NFC Sticker"
+                                    } @else {
+                                        "Re-program NFC Sticker"
+                                    }
+                                }
+                            } @else {
+                                div class="text-muted text-sm italic" {
+                                    "Setup link has been used"
+                                }
+                            }
                         }
-                        div class="text-muted text-sm" {
-                            "/ " (max_sats_per_location) " sats"
+
+                        @if location.is_programmed() {
+                            // Show waiting message in addition to re-program button
+                            div class="text-center px-4 py-2 bg-blue-900 border border-blue-700 text-blue-200 rounded-lg text-sm" {
+                                i class="fa-solid fa-info-circle mr-1" {}
+                                "Waiting for first scan to activate"
+                            }
                         }
                     }
 
-                    // Progress bar
-                    div class="w-32" {
-                        div class={
-                            "progress "
-                            @if sats_percent > 50 { "progress-success" }
-                            @else if sats_percent > 20 { "progress-warning" }
-                            @else { "progress-error" }
+                    // View location button (always available)
+                    a href={"/locations/" (location.id)}
+                        class={
+                            "btn-secondary text-center "
+                            @if !location.is_created() && !location.is_programmed() { "flex-1" }
                         } {
-                            div class="progress-bar" style=(format!("width: {}%", sats_percent)) {}
-                        }
+                        i class="fa-solid fa-eye mr-2" {}
+                        "View Details"
                     }
                 }
             }
