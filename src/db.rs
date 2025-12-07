@@ -213,6 +213,17 @@ impl Database {
             .map_err(Into::into)
     }
 
+    pub async fn delete_location(&self, id: &str, user_id: &str) -> Result<SqliteQueryResult> {
+        sqlx::query(
+            "DELETE FROM locations WHERE id = ? AND user_id = ? AND status != 'active'"
+        )
+        .bind(id)
+        .bind(user_id)
+        .execute(&self.pool)
+        .await
+        .map_err(Into::into)
+    }
+
     // Photo operations
     pub async fn add_photo(&self, location_id: &str, file_path: String) -> Result<Photo> {
         let id = Uuid::new_v4().to_string();

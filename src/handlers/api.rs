@@ -672,6 +672,74 @@ pub async fn boltcard_keys(
     }))
 }
 
+/// Delete a non-active location (created or programmed only)
+pub async fn delete_location(
+    State(state): State<Arc<AppState>>,
+    Path(location_id): Path<String>,
+    auth: AuthUser,
+) -> Result<StatusCode, StatusCode> {
+    tracing::info!("Delete request for location {} by user {}", location_id, auth.user_id);
+
+    // First check if location exists and belongs to user
+    let location = state
+        .db
+        .get_location(&location_id)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to get location: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?
+        .ok_or_else(|| {
+            tracing::warn!("Location not found: {}", location_id);
+            StatusCode::NOT_FOUND
+        })?;
+
+    // Check ownership
+    if location.user_id != auth.user_id {
+        tracing::warn!("User {} attempted to delete location {} owned by {}",
+            auth.user_id, location_id, location.user_id);
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    // Check if active (cannot delete active locations)
+    if location.is_active() {
+        tracing::warn!("User {} attempted to delete active location {}",
+            auth.user_id, location_id);
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    // If location has sats, return them to donation pool
+    if location.current_sats > 0 {
+        state
+            .db
+            .add_to_donation_pool(location.current_sats)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to return sats to donation pool: {}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
+        tracing::info!("Returned {} sats to donation pool from deleted location", location.current_sats);
+    }
+
+    // Delete the location
+    let result = state
+        .db
+        .delete_location(&location_id, &auth.user_id)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to delete location: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    if result.rows_affected() == 0 {
+        tracing::warn!("Location {} not deleted (may have been activated or doesn't exist)", location_id);
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    tracing::info!("Location {} deleted by user {}", location.name, auth.user_id);
+    Ok(StatusCode::NO_CONTENT)
+}
+
 /// Manually trigger the refill process for all locations
 pub async fn manual_refill(State(state): State<Arc<AppState>>) -> Result<Json<serde_json::Value>, StatusCode> {
     tracing::info!("Manual refill triggered");

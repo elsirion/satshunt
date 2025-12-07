@@ -9,7 +9,7 @@ mod templates;
 
 use anyhow::Result;
 use axum::{
-    routing::{get, post},
+    routing::{delete, get, post},
     Router,
 };
 use clap::Parser;
@@ -117,6 +117,8 @@ async fn main() -> Result<()> {
         .route("/api/refill/trigger", post(handlers::manual_refill))
         // Boltcard NFC programming endpoint
         .route("/api/boltcard/:write_token", post(handlers::boltcard_keys))
+        // Delete location endpoint (non-active only)
+        .route("/api/locations/:location_id", delete(handlers::delete_location))
         // Static files
         .nest_service("/uploads", ServeDir::new(&uploads_dir))
         .nest_service("/static", ServeDir::new("static"))

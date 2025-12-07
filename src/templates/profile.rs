@@ -126,19 +126,13 @@ fn location_card(location: &Location, max_sats_per_location: i64) -> Markup {
                     @if location.is_created() || location.is_programmed() {
                         // Location needs to be programmed or can retry programming
                         @if let Some(token) = &location.write_token {
-                            @if !location.write_token_used {
-                                a href={"/setup/" (token)}
-                                    class="btn-primary flex-1 text-center" {
-                                    i class="fa-solid fa-microchip mr-2" {}
-                                    @if location.is_created() {
-                                        "Program NFC Sticker"
-                                    } @else {
-                                        "Re-program NFC Sticker"
-                                    }
-                                }
-                            } @else {
-                                div class="text-muted text-sm italic" {
-                                    "Setup link has been used"
+                            a href={"/setup/" (token)}
+                                class="btn-primary flex-1 text-center" {
+                                i class="fa-solid fa-microchip mr-2" {}
+                                @if location.is_created() {
+                                    "Program NFC Sticker"
+                                } @else {
+                                    "Re-program NFC Sticker"
                                 }
                             }
                         }
@@ -160,6 +154,21 @@ fn location_card(location: &Location, max_sats_per_location: i64) -> Markup {
                         } {
                         i class="fa-solid fa-eye mr-2" {}
                         "View Details"
+                    }
+
+                    // Delete button (only for non-active locations)
+                    @if !location.is_active() {
+                        button
+                            onclick={
+                                "if(confirm('Are you sure you want to delete this location? This cannot be undone.')) { "
+                                "fetch('/api/locations/" (location.id) "', { method: 'DELETE' }) "
+                                ".then(r => r.ok ? window.location.reload() : alert('Failed to delete location')) "
+                                "}"
+                            }
+                            class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-semibold transition-colors" {
+                            i class="fa-solid fa-trash mr-2" {}
+                            "Delete"
+                        }
                     }
                 }
             }

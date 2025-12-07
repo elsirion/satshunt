@@ -45,13 +45,26 @@ pub fn location_detail(location: &Location, photos: &[Photo], base_url: &str, ma
                                     "This location has been created but the NFC sticker has not been programmed yet. "
                                     "It will not appear on the public map until it's programmed and activated."
                                 }
-                                @if let Some(token) = &location.write_token {
-                                    @if !location.write_token_used {
-                                        a href={"/setup/" (token)}
-                                            class="inline-flex items-center px-4 py-2 bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg font-semibold transition-colors" {
-                                            i class="fa-solid fa-microchip mr-2" {}
-                                            "Program NFC Sticker"
+                                div class="flex gap-3" {
+                                    @if let Some(token) = &location.write_token {
+                                        @if !location.write_token_used {
+                                            a href={"/setup/" (token)}
+                                                class="inline-flex items-center px-4 py-2 bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg font-semibold transition-colors" {
+                                                i class="fa-solid fa-microchip mr-2" {}
+                                                "Program NFC Sticker"
+                                            }
                                         }
+                                    }
+                                    button
+                                        onclick={
+                                            "if(confirm('Are you sure you want to delete this location? This cannot be undone.')) { "
+                                            "fetch('/api/locations/" (location.id) "', { method: 'DELETE' }) "
+                                            ".then(r => r.ok ? window.location.href='/profile' : alert('Failed to delete location')) "
+                                            "}"
+                                        }
+                                        class="inline-flex items-center px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-semibold transition-colors" {
+                                        i class="fa-solid fa-trash mr-2" {}
+                                        "Delete"
                                     }
                                 }
                             } @else {
@@ -59,17 +72,30 @@ pub fn location_detail(location: &Location, photos: &[Photo], base_url: &str, ma
                                     "The NFC sticker has been programmed. This location will become active and appear on the public map "
                                     "after the first successful scan and withdrawal."
                                 }
-                                @if let Some(token) = &location.write_token {
-                                    @if !location.write_token_used {
-                                        a href={"/setup/" (token)}
-                                            class="inline-flex items-center px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold transition-colors" {
-                                            i class="fa-solid fa-redo mr-2" {}
-                                            "Re-program NFC Sticker"
-                                        }
-                                        p class="text-secondary text-sm mt-2 italic" {
-                                            "If the NFC write failed, you can try again with the same keys"
+                                div class="flex gap-3" {
+                                    @if let Some(token) = &location.write_token {
+                                        @if !location.write_token_used {
+                                            a href={"/setup/" (token)}
+                                                class="inline-flex items-center px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold transition-colors" {
+                                                i class="fa-solid fa-redo mr-2" {}
+                                                "Re-program NFC Sticker"
+                                            }
                                         }
                                     }
+                                    button
+                                        onclick={
+                                            "if(confirm('Are you sure you want to delete this location? This cannot be undone.')) { "
+                                            "fetch('/api/locations/" (location.id) "', { method: 'DELETE' }) "
+                                            ".then(r => r.ok ? window.location.href='/profile' : alert('Failed to delete location')) "
+                                            "}"
+                                        }
+                                        class="inline-flex items-center px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-semibold transition-colors" {
+                                        i class="fa-solid fa-trash mr-2" {}
+                                        "Delete"
+                                    }
+                                }
+                                p class="text-secondary text-sm mt-2 italic" {
+                                    "If the NFC write failed, you can try again with the same keys"
                                 }
                             }
                         }
