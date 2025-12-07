@@ -1,7 +1,7 @@
-use crate::models::{Location, Photo};
+use crate::models::{Location, Photo, Scan};
 use maud::{html, Markup, PreEscaped};
 
-pub fn location_detail(location: &Location, photos: &[Photo], base_url: &str, max_sats_per_location: i64) -> Markup {
+pub fn location_detail(location: &Location, photos: &[Photo], scans: &[Scan], max_sats_per_location: i64) -> Markup {
     let sats_percent = if max_sats_per_location > 0 {
         (location.current_sats as f64 / max_sats_per_location as f64 * 100.0) as i32
     } else {
@@ -186,6 +186,43 @@ pub fn location_detail(location: &Location, photos: &[Photo], base_url: &str, ma
                 }
             }
 
+            // Payout History
+            @if !scans.is_empty() {
+                div class="bg-secondary rounded-lg p-8 mb-8 border border-accent-muted" {
+                    h2 class="text-2xl font-bold mb-4 text-highlight" {
+                        i class="fa-solid fa-history mr-2" {}
+                        "Payout History"
+                    }
+
+                    div class="overflow-x-auto" {
+                        table class="w-full" {
+                            thead {
+                                tr class="border-b border-accent-muted" {
+                                    th class="text-left py-3 px-4 text-secondary font-semibold" { "Date" }
+                                    th class="text-right py-3 px-4 text-secondary font-semibold" { "Amount" }
+                                }
+                            }
+                            tbody {
+                                @for scan in scans {
+                                    tr class="border-b border-accent-muted hover:bg-tertiary transition-colors" {
+                                        td class="py-3 px-4 text-secondary" {
+                                            (scan.scanned_at.format("%Y-%m-%d %H:%M:%S UTC"))
+                                        }
+                                        td class="py-3 px-4 text-right font-mono" {
+                                            span class="text-highlight font-semibold" {
+                                                (scan.sats_withdrawn)
+                                            }
+                                            " "
+                                            i class="fa-solid fa-bolt text-highlight" {}
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // Map
             div class="bg-secondary rounded-lg p-8 mb-8 border border-accent-muted" {
                 h2 class="text-2xl font-bold mb-4 text-highlight" {
@@ -194,69 +231,10 @@ pub fn location_detail(location: &Location, photos: &[Photo], base_url: &str, ma
                 }
                 div id="map" class="w-full h-64 rounded-lg border border-accent-muted" {}
             }
-
-            // Testing section with LNURL-withdraw QR
-            div class="bg-secondary rounded-lg p-8 border border-accent-muted border-dashed" {
-                h2 class="text-2xl font-bold mb-4 text-highlight" {
-                    i class="fa-solid fa-flask mr-2" {}
-                    "Testing - LNURL Withdraw"
-                }
-
-                @if location.is_active() {
-                    p class="text-secondary mb-4" {
-                        "Scan this QR code with your Lightning wallet to test withdrawing sats from this location. "
-                        "This is the same LNURL that's programmed on the NFC tag."
-                    }
-                } @else {
-                    p class="text-secondary mb-4" {
-                        "This is a preview of the LNURL-withdraw that will be available once the location is active. "
-                        @if location.is_created() {
-                            "You need to program the NFC sticker first."
-                        } @else {
-                            "The NFC sticker needs to be scanned once to activate this location."
-                        }
-                    }
-                }
-
-                @if location.current_sats == 0 {
-                    div class="bg-warning border border-warning text-primary px-4 py-3 rounded-lg mb-6" {
-                        p {
-                            i class="fa-solid fa-triangle-exclamation mr-2" {}
-                            "No sats available in this location. Wait for it to refill from the donation pool."
-                        }
-                    }
-                }
-
-                div class="flex flex-col md:flex-row gap-6 items-center" {
-                    // QR Code
-                    div class="bg-white p-4 rounded-lg" {
-                        div id="lnurlQR" class="w-48 h-48" {}
-                    }
-
-                    // Details
-                    div class="flex-1" {
-                        div class="bg-tertiary rounded-lg p-4 mb-4" {
-                            p class="text-sm text-muted mb-1" { "Available to Withdraw" }
-                            p class="text-3xl font-bold text-highlight" {
-                                (location.current_sats) " sats"
-                            }
-                        }
-                        details class="bg-tertiary rounded-lg p-4" {
-                            summary class="cursor-pointer text-secondary hover:text-primary font-semibold" {
-                                "Show LNURL"
-                            }
-                            div class="mt-2 p-3 bg-secondary rounded text-xs font-mono break-all text-secondary" {
-                                (format!("{}/api/lnurlw/{}", base_url, location.id))
-                            }
-                        }
-                    }
-                }
-            }
         }
 
         // Map script
         (PreEscaped(format!(r#"
-        <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
         <script>
             // Initialize map
             const map = L.map('map').setView([{}, {}], 15);
@@ -277,26 +255,11 @@ pub fn location_detail(location: &Location, photos: &[Photo], base_url: &str, ma
             L.marker([{}, {}]).addTo(map)
                 .bindPopup('<b>{}</b><br>{} sats available')
                 .openPopup();
-
-            // Generate LNURL-withdraw QR code
-            const lnurlQRDiv = document.getElementById('lnurlQR');
-            if (lnurlQRDiv) {{
-                const lnurlUrl = '{}/api/lnurlw/{}';
-                new QRCode(lnurlQRDiv, {{
-                    text: lnurlUrl,
-                    width: 192,
-                    height: 192,
-                    colorDark: '#000000',
-                    colorLight: '#ffffff',
-                    correctLevel: QRCode.CorrectLevel.M
-                }});
-            }}
         </script>
         "#,
             location.latitude, location.longitude,
             location.latitude, location.longitude,
-            location.name, location.current_sats,
-            base_url, location.id
+            location.name, location.current_sats
         )))
     }
 }

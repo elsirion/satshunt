@@ -41,10 +41,13 @@ impl LightningService {
     }
 
     /// Pay an invoice (send sats to user)
-    /// In production, this would use blitzi to actually pay the invoice
     pub async fn pay_invoice(&self, invoice: &str) -> Result<()> {
-        // TODO: Implement actual payment with blitzi
-        tracing::info!("Would pay invoice: {}", invoice);
+        let bolt11 = invoice.parse()
+            .map_err(|e| anyhow::anyhow!("Invalid invoice format: {}", e))?;
+
+        tracing::info!("Paying invoice: {}", invoice);
+        let preimage = self.client.pay(&bolt11).await?;
+        tracing::info!("Invoice paid successfully, preimage: {}", hex::encode(preimage));
         Ok(())
     }
 
@@ -96,7 +99,7 @@ impl LnurlWithdrawResponse {
             tag: "withdrawRequest".to_string(),
             callback: callback_url,
             secret,
-            min_withdrawable: 1000, // 1 sat minimum
+            min_withdrawable: msats, // Must withdraw all sats
             max_withdrawable: msats,
             default_description: format!("SatsHunt treasure from {}", location_name),
         }

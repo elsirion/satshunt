@@ -110,6 +110,11 @@ pub async fn location_detail_page(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
+    let scans = state.db.get_scans_for_location(&id).await.map_err(|e| {
+        tracing::error!("Failed to get scans: {}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
     let username = match opt_auth.user_id {
         Some(user_id) => state
             .db
@@ -121,7 +126,7 @@ pub async fn location_detail_page(
         None => None,
     };
 
-    let content = templates::location_detail(&location, &photos, &state.base_url, state.max_sats_per_location);
+    let content = templates::location_detail(&location, &photos, &scans, state.max_sats_per_location);
     let page = templates::base_with_user(&location.name, content, username.as_deref());
 
     Ok(Html(page.into_string()))

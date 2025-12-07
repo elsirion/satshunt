@@ -306,6 +306,16 @@ impl Database {
         .map_err(Into::into)
     }
 
+    pub async fn get_scans_for_location(&self, location_id: &str) -> Result<Vec<Scan>> {
+        sqlx::query_as::<_, Scan>(
+            "SELECT * FROM scans WHERE location_id = ? ORDER BY scanned_at DESC"
+        )
+        .bind(location_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(Into::into)
+    }
+
     // Stats operations
     pub async fn get_stats(&self) -> Result<Stats> {
         let total_locations: i64 = sqlx::query_scalar(
