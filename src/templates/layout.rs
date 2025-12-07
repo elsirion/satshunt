@@ -95,7 +95,7 @@ fn navbar(username: Option<&str>) -> Markup {
                     // Right: Login status (desktop)
                     div class="hidden md:flex md:items-center md:space-x-4" {
                         @if let Some(user) = username {
-                            span class="text-primary text-sm" {
+                            a href="/profile" class="text-primary hover:text-accent text-sm transition flex items-center gap-1" {
                                 "👤 " (user)
                             }
                             form action="/logout" method="post" class="inline" {
@@ -157,13 +157,13 @@ fn navbar(username: Option<&str>) -> Markup {
                     // Login status (mobile)
                     div class="mt-4 pt-4 border-t border-accent-muted" {
                         @if let Some(user) = username {
-                            div class="flex items-center justify-between px-3 py-2" {
-                                span class="text-primary text-sm" {
-                                    "👤 " (user)
+                            div class="px-3 py-2 space-y-2" {
+                                a href="/profile" class="block py-2 px-3 text-primary rounded hover:bg-tertiary text-center" {
+                                    "👤 " (user) " - View Profile"
                                 }
-                                form action="/logout" method="post" class="inline" {
+                                form action="/logout" method="post" {
                                     button type="submit"
-                                        class="text-secondary hover:text-accent text-sm transition" {
+                                        class="w-full py-2 px-3 text-secondary hover:text-accent text-sm transition rounded hover:bg-tertiary" {
                                         "Logout"
                                     }
                                 }

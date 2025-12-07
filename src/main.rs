@@ -103,6 +103,7 @@ async fn main() -> Result<()> {
         .route("/login", get(handlers::login_page).post(handlers::login))
         .route("/register", get(handlers::register_page).post(handlers::register))
         .route("/logout", post(handlers::logout))
+        .route("/profile", get(handlers::profile_page))
         // API routes
         .route("/api/locations", post(handlers::create_location))
         .route("/api/lnurlw/:location_id", get(handlers::lnurlw_endpoint))

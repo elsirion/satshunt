@@ -312,3 +312,37 @@ pub async fn logout(session: Session) -> Response {
 
     Redirect::to("/").into_response()
 }
+
+pub async fn profile_page(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+) -> Result<Html<String>, StatusCode> {
+    // Get user data
+    let user = state
+        .db
+        .get_user_by_id(&auth.user_id)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to get user: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?
+        .ok_or_else(|| {
+            tracing::error!("User not found: {}", auth.user_id);
+            StatusCode::NOT_FOUND
+        })?;
+
+    // Get user's locations
+    let locations = state
+        .db
+        .get_locations_by_user(&auth.user_id)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to get user locations: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    let content = templates::profile(&user, &locations, state.max_sats_per_location);
+    let page = templates::base_with_user("Profile", content, Some(&user.username));
+
+    Ok(Html(page.into_string()))
+}

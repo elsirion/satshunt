@@ -164,6 +164,16 @@ impl Database {
             .map_err(Into::into)
     }
 
+    pub async fn get_locations_by_user(&self, user_id: &str) -> Result<Vec<Location>> {
+        sqlx::query_as::<_, Location>(
+            "SELECT * FROM locations WHERE user_id = ? ORDER BY created_at DESC"
+        )
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(Into::into)
+    }
+
     pub async fn update_location_sats(&self, id: &str, sats: i64) -> Result<SqliteQueryResult> {
         sqlx::query("UPDATE locations SET current_sats = ? WHERE id = ?")
             .bind(sats)

@@ -7,6 +7,7 @@ pub mod nfc_setup;
 pub mod donate;
 pub mod login;
 pub mod register;
+pub mod profile;
 
 pub use layout::{base, base_with_user};
 pub use home::home;
@@ -17,3 +18,4 @@ pub use nfc_setup::nfc_setup;
 pub use donate::donate;
 pub use login::login;
 pub use register::register;
+pub use profile::profile;

@@ -183,7 +183,6 @@ body {
 
 .card:hover {
   box-shadow: var(--shadow-lg);
-  transform: translateY(-2px);
 }
 
 .card-elevated {
@@ -215,7 +214,6 @@ body {
 .card-interactive:hover {
   border-color: var(--accent-primary);
   box-shadow: var(--shadow-lg);
-  transform: translateY(-2px);
 }
 
 /* Input styles - Flowbite inspired */
