@@ -4,14 +4,18 @@ use maud::{html, Markup, PreEscaped};
 pub fn donate(pool: &DonationPool) -> Markup {
     html! {
         div class="max-w-2xl mx-auto" {
-            h1 class="text-4xl font-bold mb-8 text-highlight" { "💰 Donate to the Pool" }
+            h1 class="text-4xl font-bold mb-8 text-highlight" {
+                i class="fa-solid fa-coins mr-2" {}
+                "Donate to the Pool"
+            }
 
             // Current pool stats
             div class="bg-secondary rounded-lg p-8 mb-8 border border-accent-muted" {
                 h2 class="text-2xl font-bold mb-4 text-highlight" { "Current Donation Pool" }
                 div class="text-center" {
                     div class="text-6xl font-bold text-highlight mb-2" {
-                        (pool.total_sats) " ⚡"
+                        (pool.total_sats) " "
+                        i class="fa-solid fa-bolt" {}
                     }
                     p class="text-muted" { "Total sats available for refills" }
                 }
@@ -22,19 +26,27 @@ pub fn donate(pool: &DonationPool) -> Markup {
                 h2 class="text-2xl font-bold mb-4 text-highlight" { "Why Donate?" }
                 ul class="space-y-3 text-secondary" {
                     li class="flex items-start" {
-                        span class="text-highlight mr-2" { "⚡" }
+                        span class="text-highlight mr-2" {
+                            i class="fa-solid fa-bolt" {}
+                        }
                         "Keeps treasure locations refilling automatically"
                     }
                     li class="flex items-start" {
-                        span class="text-highlight mr-2" { "⚡" }
+                        span class="text-highlight mr-2" {
+                            i class="fa-solid fa-bolt" {}
+                        }
                         "Enables new treasure hunters to find sats"
                     }
                     li class="flex items-start" {
-                        span class="text-highlight mr-2" { "⚡" }
+                        span class="text-highlight mr-2" {
+                            i class="fa-solid fa-bolt" {}
+                        }
                         "Supports the community treasure hunt game"
                     }
                     li class="flex items-start" {
-                        span class="text-highlight mr-2" { "⚡" }
+                        span class="text-highlight mr-2" {
+                            i class="fa-solid fa-bolt" {}
+                        }
                         "Locations refill at 1 sat per minute from this pool"
                     }
                 }
@@ -189,7 +201,7 @@ pub fn donate(pool: &DonationPool) -> Markup {
                             </details>
                             <div class="mt-6 bg-info border border-info text-primary px-4 py-3 rounded-lg">
                                 <p class="text-sm flex items-center">
-                                    <span class="animate-pulse mr-2">⏳</span>
+                                    <i class="fa-solid fa-hourglass-half animate-pulse mr-2"></i>
                                     Waiting for payment...
                                 </p>
                             </div>

@@ -12,13 +12,16 @@ pub fn profile(_user: &User, locations: &[Location], max_sats_per_location: i64)
                         span class="text-secondary" { "[" (locations.len()) "]" }
                     }
                     a href="/locations/new" class="btn-primary" {
-                        "➕ Add New Location"
+                        i class="fa-solid fa-plus mr-2" {}
+                        "Add New Location"
                     }
                 }
 
                 @if locations.is_empty() {
                     div class="bg-secondary rounded-lg p-12 border border-accent-muted text-center" {
-                        div class="text-6xl mb-4 opacity-50" { "📍" }
+                        div class="text-6xl mb-4 opacity-50" {
+                            i class="fa-solid fa-location-dot" {}
+                        }
                         h3 class="text-2xl font-bold text-primary mb-2" { "No locations yet" }
                         p class="text-secondary mb-6" {
                             "Create your first treasure location and start sharing sats with the world!"
@@ -66,10 +69,12 @@ fn location_card(location: &Location, max_sats_per_location: i64) -> Markup {
                     }
                     div class="flex items-center gap-4 text-sm text-muted" {
                         span {
-                            "📍 " (format!("{:.4}, {:.4}", location.latitude, location.longitude))
+                            i class="fa-solid fa-location-dot mr-1" {}
+                            (format!("{:.4}, {:.4}", location.latitude, location.longitude))
                         }
                         span {
-                            "📅 " (location.created_at.format("%b %d, %Y").to_string())
+                            i class="fa-solid fa-calendar mr-1" {}
+                            (location.created_at.format("%b %d, %Y").to_string())
                         }
                     }
                 }
@@ -78,7 +83,8 @@ fn location_card(location: &Location, max_sats_per_location: i64) -> Markup {
                 div class="flex md:flex-col gap-4 md:gap-2 md:items-end" {
                     div class="text-right" {
                         div class=(format!("text-2xl font-bold {}", color_class)) {
-                            (location.current_sats) " ⚡"
+                            (location.current_sats) " "
+                            i class="fa-solid fa-bolt" {}
                         }
                         div class="text-muted text-sm" {
                             "/ " (max_sats_per_location) " sats"

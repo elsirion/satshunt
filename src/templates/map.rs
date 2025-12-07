@@ -3,7 +3,10 @@ use maud::{html, Markup, PreEscaped};
 
 pub fn map(locations: &[Location], max_sats_per_location: i64) -> Markup {
     html! {
-        h1 class="text-4xl font-bold mb-8 text-highlight" { "🗺️ Treasure Map" }
+        h1 class="text-4xl font-bold mb-8 text-highlight" {
+            i class="fa-solid fa-map mr-2" {}
+            "Treasure Map"
+        }
 
         div class="bg-secondary rounded-lg p-4 mb-8 border border-accent-muted" {
             p class="text-secondary" {
@@ -74,7 +77,7 @@ pub fn map(locations: &[Location], max_sats_per_location: i64) -> Markup {
                 marker.bindPopup(`
                     <div style="color: #0f172a;">
                         <h3 style="font-weight: bold; margin-bottom: 4px;">${{loc.name}}</h3>
-                        <p style="margin: 4px 0;">⚡ ${{loc.current_sats}} / ${{maxSatsPerLocation}} sats</p>
+                        <p style="margin: 4px 0;"><i class="fa-solid fa-bolt"></i> ${{loc.current_sats}} / ${{maxSatsPerLocation}} sats</p>
                         <a href="/locations/${{loc.id}}" style="color: #3b82f6; text-decoration: underline;">View details</a>
                     </div>
                 `);
@@ -118,12 +121,14 @@ fn location_card(location: &Location, max_sats_per_location: i64) -> Markup {
                         p class="text-secondary text-sm mb-2" { (desc) }
                     }
                     p class="text-muted text-sm" {
-                        "📍 " (format!("{:.4}, {:.4}", location.latitude, location.longitude))
+                        i class="fa-solid fa-location-dot mr-1" {}
+                        (format!("{:.4}, {:.4}", location.latitude, location.longitude))
                     }
                 }
                 div class="text-right" {
                     div class=(format!("text-2xl font-bold {}", color_class)) {
-                        (location.current_sats) " ⚡"
+                        (location.current_sats) " "
+                        i class="fa-solid fa-bolt" {}
                     }
                     div class="text-muted text-sm" {
                         "/ " (max_sats_per_location) " sats"

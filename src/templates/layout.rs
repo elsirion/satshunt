@@ -31,6 +31,11 @@ pub fn base_with_user(title: &str, content: Markup, username: Option<&str>) -> M
                 link href="https://cdn.jsdelivr.net/npm/flowbite@2.5.1/dist/flowbite.min.css" rel="stylesheet";
                 script src="https://cdn.jsdelivr.net/npm/flowbite@2.5.1/dist/flowbite.min.js" defer {}
 
+                // Font Awesome
+                link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
+                    integrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA=="
+                    crossorigin="anonymous" referrerpolicy="no-referrer";
+
                 // HTMX
                 script src="https://unpkg.com/htmx.org@1.9.10" {}
 
@@ -86,7 +91,8 @@ fn navbar(username: Option<&str>) -> Markup {
                             }
                             li {
                                 a href="/donate" class="text-highlight transition hover:brightness-110" {
-                                    "💰 Donate"
+                                    i class="fa-solid fa-coins mr-2" {}
+                                    "Donate"
                                 }
                             }
                         }
@@ -96,9 +102,10 @@ fn navbar(username: Option<&str>) -> Markup {
                     div class="hidden md:flex md:items-center md:space-x-4" {
                         @if let Some(user) = username {
                             a href="/profile" class="text-primary hover:text-accent text-sm transition flex items-center gap-1" {
-                                "👤 " (user)
+                                i class="fa-solid fa-user mr-1" {}
+                                (user)
                             }
-                            form action="/logout" method="post" class="inline" {
+                            form action="/logout" method="post" class="inline flex items-center" {
                                 button type="submit"
                                     class="text-secondary hover:text-accent text-sm transition" {
                                     "Logout"
@@ -149,7 +156,8 @@ fn navbar(username: Option<&str>) -> Markup {
                         }
                         li {
                             a href="/donate" class="block py-2 px-3 text-highlight rounded hover:bg-tertiary" {
-                                "💰 Donate"
+                                i class="fa-solid fa-coins mr-2" {}
+                                "Donate"
                             }
                         }
                     }
@@ -159,7 +167,8 @@ fn navbar(username: Option<&str>) -> Markup {
                         @if let Some(user) = username {
                             div class="px-3 py-2 space-y-2" {
                                 a href="/profile" class="block py-2 px-3 text-primary rounded hover:bg-tertiary text-center" {
-                                    "👤 " (user) " - View Profile"
+                                    i class="fa-solid fa-user mr-2" {}
+                                    (user) " - View Profile"
                                 }
                                 form action="/logout" method="post" {
                                     button type="submit"

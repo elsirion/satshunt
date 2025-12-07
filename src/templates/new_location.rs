@@ -3,7 +3,10 @@ use maud::{html, Markup, PreEscaped};
 pub fn new_location() -> Markup {
     html! {
         div class="max-w-2xl mx-auto" {
-            h1 class="text-4xl font-bold mb-8 text-highlight" { "➕ Add New Location" }
+            h1 class="text-4xl font-bold mb-8 text-highlight" {
+                i class="fa-solid fa-plus mr-2" {}
+                "Add New Location"
+            }
 
             form id="locationForm" action="/api/locations" method="post" enctype="multipart/form-data"
                 class="bg-secondary rounded-lg p-8 border border-accent-muted space-y-6" {
@@ -52,7 +55,8 @@ pub fn new_location() -> Markup {
                 div {
                     button type="button" id="useGps"
                         class="w-full px-4 py-2 btn-secondary" {
-                        "📍 Use My Current Location"
+                        i class="fa-solid fa-location-crosshairs mr-2" {}
+                        "Use My Current Location"
                     }
                 }
 

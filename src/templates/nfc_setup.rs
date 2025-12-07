@@ -8,10 +8,16 @@ pub fn nfc_setup(location: &Location, write_token: &str, base_url: &str) -> Mark
     html! {
         div class="max-w-2xl mx-auto" {
             div class="bg-secondary rounded-lg p-8 border border-accent-muted" {
-                h1 class="text-4xl font-bold mb-6 text-highlight" { "🏷️ NFC Sticker Setup" }
+                h1 class="text-4xl font-bold mb-6 text-highlight" {
+                    i class="fa-solid fa-tag mr-2" {}
+                    "NFC Sticker Setup"
+                }
 
                 div class="bg-success border border-success text-primary px-4 py-3 rounded-lg mb-6" {
-                    p class="font-semibold" { "✓ Location created successfully!" }
+                    p class="font-semibold" {
+                        i class="fa-solid fa-check mr-2" {}
+                        "Location created successfully!"
+                    }
                 }
 
                 p class="text-secondary mb-6" {
@@ -47,7 +53,10 @@ pub fn nfc_setup(location: &Location, write_token: &str, base_url: &str) -> Mark
 
                 // Warning
                 div class="bg-warning border border-warning text-primary px-4 py-3 rounded-lg mb-6" {
-                    p class="font-semibold mb-2" { "⚠️ Important" }
+                    p class="font-semibold mb-2" {
+                        i class="fa-solid fa-triangle-exclamation mr-2" {}
+                        "Important"
+                    }
                     ul class="list-disc list-inside text-sm space-y-1" {
                         li { "This setup link can only be used once" }
                         li { "After writing the NFC sticker, this page will no longer be accessible" }
