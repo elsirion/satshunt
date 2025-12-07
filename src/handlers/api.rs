@@ -8,6 +8,7 @@ use axum::{
     http::StatusCode,
     response::Json,
 };
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{path::PathBuf, sync::Arc};
 use tokio::{fs, io::AsyncWriteExt};
@@ -377,6 +378,243 @@ pub async fn wait_for_donation(
     );
 
     Ok(axum::response::Html(html))
+}
+
+/// Generate a random 32-character hex string for card keys
+fn generate_card_key() -> String {
+    use rand::Rng;
+    let mut rng = rand::thread_rng();
+    let bytes: [u8; 16] = rng.gen();
+    hex::encode(bytes)
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BoltcardKeysRequest {
+    #[serde(rename = "UID")]
+    uid: Option<String>,
+    #[serde(rename = "LNURLW")]
+    lnurlw: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct BoltcardKeysResponse {
+    #[serde(rename = "LNURLW")]
+    lnurlw: String,
+    #[serde(rename = "K0")]
+    k0: String,
+    #[serde(rename = "K1")]
+    k1: String,
+    #[serde(rename = "K2")]
+    k2: String,
+    #[serde(rename = "K3")]
+    k3: String,
+    #[serde(rename = "K4")]
+    k4: String,
+}
+
+/// Boltcard NFC Programmer keys endpoint
+/// This endpoint is called by the Boltcard NFC Programmer app to get card keys
+/// It handles both program (UID) and reset (LNURLW) actions
+pub async fn boltcard_keys(
+    State(state): State<Arc<AppState>>,
+    Path(write_token): Path<String>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+    Json(payload): Json<BoltcardKeysRequest>,
+) -> Result<Json<BoltcardKeysResponse>, StatusCode> {
+    tracing::info!("Boltcard keys request for token: {}", write_token);
+    tracing::debug!("Query params: {:?}", params);
+    tracing::debug!("Payload: {:?}", payload);
+
+    let on_existing = params.get("onExisting").map(|s| s.as_str());
+
+    // Get location by write token
+    let location = state
+        .db
+        .get_location_by_write_token(&write_token)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to get location: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?
+        .ok_or_else(|| {
+            tracing::warn!("Invalid or used write token: {}", write_token);
+            StatusCode::NOT_FOUND
+        })?;
+
+    tracing::info!("Found location: {} ({})", location.name, location.id);
+
+    // Check if we already have an NFC card for this location
+    let mut existing_card = state
+        .db
+        .get_nfc_card_by_location(&location.id)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to get NFC card: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    let base_url = {
+        let mut url = url::Url::parse(&state.base_url).expect("Failed to parse base URL");
+        url.set_scheme("lnurlw").expect("Failed to set scheme");
+        url.to_string()
+    };
+    let lnurlw_url = format!("{}/api/lnurlw/{}", base_url, location.id);
+
+
+    // Handle program action (UID provided)
+    if let Some(uid) = &payload.uid {
+        tracing::info!("Program action for UID: {}", uid);
+
+        if existing_card.is_some() {
+            // Card already exists - handle based on onExisting parameter
+            match on_existing {
+                Some("UpdateVersion") => {
+                    tracing::info!("Updating version for existing card");
+                    state
+                        .db
+                        .increment_nfc_card_version(&location.id)
+                        .await
+                        .map_err(|e| {
+                            tracing::error!("Failed to increment version: {}", e);
+                            StatusCode::INTERNAL_SERVER_ERROR
+                        })?;
+
+                    // Update UID and mark as programmed
+                    state
+                        .db
+                        .update_nfc_card_uid_and_mark_programmed(&location.id, uid)
+                        .await
+                        .map_err(|e| {
+                            tracing::error!("Failed to update UID: {}", e);
+                            StatusCode::INTERNAL_SERVER_ERROR
+                        })?;
+
+                    // Fetch updated card
+                    existing_card = state
+                        .db
+                        .get_nfc_card_by_location(&location.id)
+                        .await
+                        .map_err(|e| {
+                            tracing::error!("Failed to get updated NFC card: {}", e);
+                            StatusCode::INTERNAL_SERVER_ERROR
+                        })?;
+                }
+                _ => {
+                    tracing::info!("Card already exists, keeping version");
+                    // Just update the UID
+                    state
+                        .db
+                        .update_nfc_card_uid_and_mark_programmed(&location.id, uid)
+                        .await
+                        .map_err(|e| {
+                            tracing::error!("Failed to update UID: {}", e);
+                            StatusCode::INTERNAL_SERVER_ERROR
+                        })?;
+                }
+            }
+        } else {
+            // Create new NFC card with generated keys
+            tracing::info!("Creating new NFC card for location");
+
+            let k0 = generate_card_key();
+            let k1 = generate_card_key();
+            let k2 = generate_card_key();
+            let k3 = generate_card_key();
+            let k4 = generate_card_key();
+
+            let card = state
+                .db
+                .create_nfc_card(location.id.clone(), k0, k1, k2, k3, k4)
+                .await
+                .map_err(|e| {
+                    tracing::error!("Failed to create NFC card: {}", e);
+                    StatusCode::INTERNAL_SERVER_ERROR
+                })?;
+
+            // Update UID and mark as programmed
+            state
+                .db
+                .update_nfc_card_uid_and_mark_programmed(&location.id, uid)
+                .await
+                .map_err(|e| {
+                    tracing::error!("Failed to update UID: {}", e);
+                    StatusCode::INTERNAL_SERVER_ERROR
+                })?;
+
+            existing_card = Some(card);
+        }
+
+        // Mark write token as used
+        state
+            .db
+            .mark_write_token_used(&write_token)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to mark write token as used: {}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
+    }
+    // Handle reset action (LNURLW provided)
+    else if let Some(lnurlw) = &payload.lnurlw {
+        tracing::info!("Reset action for LNURLW: {}", lnurlw);
+
+        // Verify the LNURLW matches this location
+        if !lnurlw.contains(&location.id) {
+            tracing::warn!("LNURLW does not match location");
+            return Err(StatusCode::BAD_REQUEST);
+        }
+
+        if existing_card.is_none() {
+            tracing::warn!("No card exists to reset");
+            return Err(StatusCode::NOT_FOUND);
+        }
+
+        match on_existing {
+            Some("UpdateVersion") => {
+                tracing::info!("Incrementing version on reset");
+                state
+                    .db
+                    .increment_nfc_card_version(&location.id)
+                    .await
+                    .map_err(|e| {
+                        tracing::error!("Failed to increment version: {}", e);
+                        StatusCode::INTERNAL_SERVER_ERROR
+                    })?;
+
+                // Fetch updated card
+                existing_card = state
+                    .db
+                    .get_nfc_card_by_location(&location.id)
+                    .await
+                    .map_err(|e| {
+                        tracing::error!("Failed to get updated NFC card: {}", e);
+                        StatusCode::INTERNAL_SERVER_ERROR
+                    })?;
+            }
+            _ => {
+                tracing::info!("Keeping version on reset");
+            }
+        }
+    } else {
+        tracing::error!("Neither UID nor LNURLW provided");
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let card = existing_card.ok_or_else(|| {
+        tracing::error!("Card should exist at this point");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    tracing::info!("Returning keys for card (version: {})", card.version);
+
+    Ok(Json(BoltcardKeysResponse {
+        lnurlw: lnurlw_url,
+        k0: card.k0_auth_key,
+        k1: card.k1_decrypt_key,
+        k2: card.k2_cmac_key,
+        k3: card.k3,
+        k4: card.k4,
+    }))
 }
 
 /// Manually trigger the refill process for all locations

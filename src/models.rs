@@ -139,3 +139,20 @@ pub struct Stats {
     pub total_scans: i64,
     pub donation_pool_sats: i64,
 }
+
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+pub struct NfcCard {
+    pub id: String,
+    pub location_id: String,
+    pub k0_auth_key: String,
+    pub k1_decrypt_key: String,
+    pub k2_cmac_key: String,
+    pub k3: String,
+    pub k4: String,
+    pub uid: Option<String>,
+    pub counter: i64,
+    pub version: i64,
+    pub created_at: DateTime<Utc>,
+    pub programmed_at: Option<DateTime<Utc>>,
+    pub last_used_at: Option<DateTime<Utc>>,
+}

@@ -9,6 +9,7 @@ axum = { version = "0.7", features = ["multipart"] }
 tokio = { version = "1", features = ["full"] }
 tower = "0.4"
 tower-http = { version = "0.5", features = ["fs", "trace"] }
+url = "2"
 
 # HTML templating
 maud = { version = "0.26", features = ["axum"] }
@@ -51,6 +52,11 @@ uuid = { version = "1", features = ["v4", "serde"] }
 argon2 = { version = "0.5", features = ["std"] }
 tower-sessions = "0.13"
 tower-sessions-sqlx-store = { version = "0.14", features = ["sqlite"] }
+
+# Random generation and hex encoding
+rand = "0.8"
+hex = "0.4"
+urlencoding = "2.1"
 
 # Workaround for jemalloc build issues
 [profile.dev.package.tikv-jemalloc-sys]

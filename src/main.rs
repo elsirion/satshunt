@@ -115,6 +115,8 @@ async fn main() -> Result<()> {
         .route("/api/donate/invoice", post(handlers::create_donation_invoice))
         .route("/api/donate/wait/:invoice_and_amount", get(handlers::wait_for_donation))
         .route("/api/refill/trigger", post(handlers::manual_refill))
+        // Boltcard NFC programming endpoint
+        .route("/api/boltcard/:write_token", post(handlers::boltcard_keys))
         // Static files
         .nest_service("/uploads", ServeDir::new(&uploads_dir))
         .nest_service("/static", ServeDir::new("static"))

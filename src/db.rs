@@ -298,4 +298,98 @@ impl Database {
             donation_pool_sats: donation_pool.total_sats,
         })
     }
+
+    // NFC card operations
+    pub async fn create_nfc_card(
+        &self,
+        location_id: String,
+        k0_auth_key: String,
+        k1_decrypt_key: String,
+        k2_cmac_key: String,
+        k3: String,
+        k4: String,
+    ) -> Result<NfcCard> {
+        let id = Uuid::new_v4().to_string();
+        let now = Utc::now();
+
+        sqlx::query_as::<_, NfcCard>(
+            r#"
+            INSERT INTO nfc_cards (
+                id, location_id, k0_auth_key, k1_decrypt_key, k2_cmac_key, k3, k4,
+                counter, version, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?)
+            RETURNING *
+            "#,
+        )
+        .bind(&id)
+        .bind(&location_id)
+        .bind(&k0_auth_key)
+        .bind(&k1_decrypt_key)
+        .bind(&k2_cmac_key)
+        .bind(&k3)
+        .bind(&k4)
+        .bind(now)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(Into::into)
+    }
+
+    pub async fn get_nfc_card_by_location(&self, location_id: &str) -> Result<Option<NfcCard>> {
+        sqlx::query_as::<_, NfcCard>("SELECT * FROM nfc_cards WHERE location_id = ?")
+            .bind(location_id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(Into::into)
+    }
+
+    /// Get NFC card by UID - will be used for payment verification with NFC taps
+    #[allow(dead_code)]
+    pub async fn get_nfc_card_by_uid(&self, uid: &str) -> Result<Option<NfcCard>> {
+        sqlx::query_as::<_, NfcCard>("SELECT * FROM nfc_cards WHERE uid = ?")
+            .bind(uid)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(Into::into)
+    }
+
+    pub async fn update_nfc_card_uid_and_mark_programmed(
+        &self,
+        location_id: &str,
+        uid: &str,
+    ) -> Result<SqliteQueryResult> {
+        sqlx::query(
+            "UPDATE nfc_cards SET uid = ?, programmed_at = ? WHERE location_id = ?"
+        )
+        .bind(uid)
+        .bind(Utc::now())
+        .bind(location_id)
+        .execute(&self.pool)
+        .await
+        .map_err(Into::into)
+    }
+
+    pub async fn increment_nfc_card_version(&self, location_id: &str) -> Result<SqliteQueryResult> {
+        sqlx::query("UPDATE nfc_cards SET version = version + 1 WHERE location_id = ?")
+            .bind(location_id)
+            .execute(&self.pool)
+            .await
+            .map_err(Into::into)
+    }
+
+    /// Update NFC card counter - will be used for replay protection when processing NFC payments
+    #[allow(dead_code)]
+    pub async fn update_nfc_card_counter(
+        &self,
+        uid: &str,
+        counter: i64,
+    ) -> Result<SqliteQueryResult> {
+        sqlx::query("UPDATE nfc_cards SET counter = ?, last_used_at = ? WHERE uid = ?")
+            .bind(counter)
+            .bind(Utc::now())
+            .bind(uid)
+            .execute(&self.pool)
+            .await
+            .map_err(Into::into)
+    }
 }
