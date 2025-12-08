@@ -21,14 +21,14 @@ pub fn base_with_user(title: &str, content: Markup, username: Option<&str>) -> M
                 link rel="apple-touch-icon" sizes="180x180" href="/static/images/apple-touch-icon.png";
                 link rel="manifest" href="/static/site.webmanifest";
 
-                // Custom color palette
-                link rel="stylesheet" href="/static/css/colors.css";
-
                 // Tailwind CSS CDN
                 script src="https://cdn.tailwindcss.com" {}
 
                 // Flowbite CSS & JS
                 link href="https://cdn.jsdelivr.net/npm/flowbite@2.5.1/dist/flowbite.min.css" rel="stylesheet";
+
+                // Custom color palette (loaded after Tailwind to override)
+                link rel="stylesheet" href="/static/css/colors.css";
                 script src="https://cdn.jsdelivr.net/npm/flowbite@2.5.1/dist/flowbite.min.js" defer {}
 
                 // Font Awesome
