@@ -2,78 +2,76 @@ use maud::{html, Markup, PreEscaped};
 
 pub fn new_location() -> Markup {
     html! {
-        div class="max-w-2xl mx-auto" {
-            h1 class="text-4xl font-bold mb-8 text-highlight" {
-                i class="fa-solid fa-plus mr-2" {}
-                "Add New Location"
+        h1 class="text-4xl font-bold mb-8 text-highlight" {
+            i class="fa-solid fa-plus mr-2" {}
+            "Add New Location"
+        }
+
+        form id="locationForm" action="/api/locations" method="post"
+            class="bg-secondary rounded-lg p-8 border border-accent-muted space-y-6" {
+
+            // Name field
+            div {
+                label for="name" class="block mb-2 text-sm font-medium text-primary" {
+                    "Location Name"
+                }
+                input type="text" id="name" name="name" required
+                    class="bg-tertiary border border-accent-muted text-primary text-sm rounded-lg focus:ring-accent focus:border-accent block w-full p-2.5"
+                    placeholder="Treasure Rock in Central Park";
             }
 
-            form id="locationForm" action="/api/locations" method="post"
-                class="bg-secondary rounded-lg p-8 border border-accent-muted space-y-6" {
+            // Description
+            div {
+                label for="description" class="block mb-2 text-sm font-medium text-primary" {
+                    "Description (optional)"
+                }
+                textarea id="description" name="description" rows="3"
+                    class="bg-tertiary border border-accent-muted text-primary text-sm rounded-lg focus:ring-accent focus:border-accent block w-full p-2.5"
+                    placeholder="Behind the large oak tree near the fountain..." {}
+            }
 
-                // Name field
+            // Coordinates
+            div class="grid md:grid-cols-2 gap-4" {
                 div {
-                    label for="name" class="block mb-2 text-sm font-medium text-primary" {
-                        "Location Name"
+                    label for="latitude" class="block mb-2 text-sm font-medium text-primary" {
+                        "Latitude"
                     }
-                    input type="text" id="name" name="name" required
+                    input type="number" id="latitude" name="latitude" required step="any" value="37.7749"
                         class="bg-tertiary border border-accent-muted text-primary text-sm rounded-lg focus:ring-accent focus:border-accent block w-full p-2.5"
-                        placeholder="Treasure Rock in Central Park";
+                        placeholder="37.7749";
                 }
-
-                // Description
                 div {
-                    label for="description" class="block mb-2 text-sm font-medium text-primary" {
-                        "Description (optional)"
+                    label for="longitude" class="block mb-2 text-sm font-medium text-primary" {
+                        "Longitude"
                     }
-                    textarea id="description" name="description" rows="3"
+                    input type="number" id="longitude" name="longitude" required step="any" value="-122.4194"
                         class="bg-tertiary border border-accent-muted text-primary text-sm rounded-lg focus:ring-accent focus:border-accent block w-full p-2.5"
-                        placeholder="Behind the large oak tree near the fountain..." {}
+                        placeholder="-122.4194";
                 }
+            }
 
-                // Coordinates
-                div class="grid md:grid-cols-2 gap-4" {
-                    div {
-                        label for="latitude" class="block mb-2 text-sm font-medium text-primary" {
-                            "Latitude"
-                        }
-                        input type="number" id="latitude" name="latitude" required step="any" value="37.7749"
-                            class="bg-tertiary border border-accent-muted text-primary text-sm rounded-lg focus:ring-accent focus:border-accent block w-full p-2.5"
-                            placeholder="37.7749";
-                    }
-                    div {
-                        label for="longitude" class="block mb-2 text-sm font-medium text-primary" {
-                            "Longitude"
-                        }
-                        input type="number" id="longitude" name="longitude" required step="any" value="-122.4194"
-                            class="bg-tertiary border border-accent-muted text-primary text-sm rounded-lg focus:ring-accent focus:border-accent block w-full p-2.5"
-                            placeholder="-122.4194";
-                    }
+            // GPS button
+            div {
+                button type="button" id="useGps"
+                    class="w-full px-4 py-2 btn-secondary" {
+                    i class="fa-solid fa-location-crosshairs mr-2" {}
+                    "Use My Current Location"
                 }
+            }
 
-                // GPS button
-                div {
-                    button type="button" id="useGps"
-                        class="w-full px-4 py-2 btn-secondary" {
-                        i class="fa-solid fa-location-crosshairs mr-2" {}
-                        "Use My Current Location"
-                    }
+            // Map preview
+            div {
+                label class="block mb-2 text-sm font-medium text-primary" {
+                    "Location Preview"
                 }
+                div id="previewMap" class="w-full h-64 rounded-lg border border-accent-muted" {}
+            }
 
-                // Map preview
-                div {
-                    label class="block mb-2 text-sm font-medium text-primary" {
-                        "Location Preview"
-                    }
-                    div id="previewMap" class="w-full h-64 rounded-lg border border-accent-muted" {}
-                }
-
-                // Submit button
-                div {
-                    button type="submit"
-                        class="w-full btn-primary" {
-                        "Create Location"
-                    }
+            // Submit button
+            div {
+                button type="submit"
+                    class="w-full btn-primary" {
+                    "Create Location"
                 }
             }
         }

@@ -26,7 +26,7 @@ pub fn home(stats: &Stats) -> Markup {
         }
 
         // Stats section
-        div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-16" {
+        div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-16" {
             (stat_card(
                 html! { i class="fa-solid fa-location-dot" {} },
                 "Locations",
@@ -45,11 +45,6 @@ pub fn home(stats: &Stats) -> Markup {
                 },
                 "Total Scans",
                 &stats.total_scans.to_string()
-            ))
-            (stat_card(
-                html! { i class="fa-solid fa-coins" {} },
-                "Donation Pool",
-                &format!("{} sats", stats.donation_pool_sats)
             ))
         }
 

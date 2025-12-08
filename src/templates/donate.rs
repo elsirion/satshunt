@@ -3,118 +3,116 @@ use maud::{html, Markup, PreEscaped};
 
 pub fn donate(pool: &DonationPool) -> Markup {
     html! {
-        div class="max-w-2xl mx-auto" {
-            h1 class="text-4xl font-bold mb-8 text-highlight" {
-                i class="fa-solid fa-coins mr-2" {}
-                "Donate to the Pool"
-            }
+        h1 class="text-4xl font-bold mb-8 text-highlight" {
+            i class="fa-solid fa-coins mr-2" {}
+            "Donate to the Pool"
+        }
 
-            // Current pool stats
-            div class="bg-secondary rounded-lg p-8 mb-8 border border-accent-muted" {
-                h2 class="text-2xl font-bold mb-4 text-highlight" { "Current Donation Pool" }
-                div class="text-center" {
-                    div class="text-6xl font-bold text-highlight mb-2" {
-                        (pool.total_sats) " "
+        // Current pool stats
+        div class="bg-secondary rounded-lg p-8 mb-8 border border-accent-muted" {
+            h2 class="text-2xl font-bold mb-4 text-highlight" { "Current Donation Pool" }
+            div class="text-center" {
+                div class="text-6xl font-bold text-highlight mb-2" {
+                    (pool.total_sats) " "
+                    i class="fa-solid fa-bolt" {}
+                }
+                p class="text-muted" { "Total sats available for refills" }
+            }
+        }
+
+        // Why donate section
+        div class="bg-secondary rounded-lg p-8 mb-8 border border-accent-muted" {
+            h2 class="text-2xl font-bold mb-4 text-highlight" { "Why Donate?" }
+            ul class="space-y-3 text-secondary" {
+                li class="flex items-start" {
+                    span class="text-highlight mr-2" {
                         i class="fa-solid fa-bolt" {}
                     }
-                    p class="text-muted" { "Total sats available for refills" }
+                    "Keeps treasure locations refilling automatically"
+                }
+                li class="flex items-start" {
+                    span class="text-highlight mr-2" {
+                        i class="fa-solid fa-bolt" {}
+                    }
+                    "Enables new treasure hunters to find sats"
+                }
+                li class="flex items-start" {
+                    span class="text-highlight mr-2" {
+                        i class="fa-solid fa-bolt" {}
+                    }
+                    "Supports the community treasure hunt game"
+                }
+                li class="flex items-start" {
+                    span class="text-highlight mr-2" {
+                        i class="fa-solid fa-bolt" {}
+                    }
+                    "Locations refill at 1 sat per minute from this pool"
                 }
             }
+        }
 
-            // Why donate section
-            div class="bg-secondary rounded-lg p-8 mb-8 border border-accent-muted" {
-                h2 class="text-2xl font-bold mb-4 text-highlight" { "Why Donate?" }
-                ul class="space-y-3 text-secondary" {
-                    li class="flex items-start" {
-                        span class="text-highlight mr-2" {
-                            i class="fa-solid fa-bolt" {}
-                        }
-                        "Keeps treasure locations refilling automatically"
-                    }
-                    li class="flex items-start" {
-                        span class="text-highlight mr-2" {
-                            i class="fa-solid fa-bolt" {}
-                        }
-                        "Enables new treasure hunters to find sats"
-                    }
-                    li class="flex items-start" {
-                        span class="text-highlight mr-2" {
-                            i class="fa-solid fa-bolt" {}
-                        }
-                        "Supports the community treasure hunt game"
-                    }
-                    li class="flex items-start" {
-                        span class="text-highlight mr-2" {
-                            i class="fa-solid fa-bolt" {}
-                        }
-                        "Locations refill at 1 sat per minute from this pool"
-                    }
-                }
-            }
+        // Donation form
+        div class="bg-secondary rounded-lg p-8 border border-accent-muted" {
+            h2 class="text-2xl font-bold mb-6 text-highlight" { "Make a Donation" }
 
-            // Donation form
-            div class="bg-secondary rounded-lg p-8 border border-accent-muted" {
-                h2 class="text-2xl font-bold mb-6 text-highlight" { "Make a Donation" }
+            div id="donationContainer" {
+                // Amount selection
+                div id="amountSelection" {
+                    label class="block mb-4 text-sm font-medium text-primary" {
+                        "Choose donation amount:"
+                    }
+                    div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4" {
+                        (amount_button("1000", "1K sats"))
+                        (amount_button("5000", "5K sats"))
+                        (amount_button("10000", "10K sats"))
+                        (amount_button("50000", "50K sats"))
+                    }
+                    div class="grid grid-cols-2 md:grid-cols-4 gap-4" {
+                        (amount_button("100000", "100K sats"))
+                        (amount_button("500000", "500K sats"))
+                        (amount_button("1000000", "1M sats"))
+                        (amount_button("custom", "Custom"))
+                    }
 
-                div id="donationContainer" {
-                    // Amount selection
-                    div id="amountSelection" {
-                        label class="block mb-4 text-sm font-medium text-primary" {
-                            "Choose donation amount:"
+                    // Custom amount
+                    div id="customAmountDiv" class="hidden mt-4" {
+                        label for="customAmount" class="block mb-2 text-sm font-medium text-primary" {
+                            "Custom Amount (sats)"
                         }
-                        div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4" {
-                            (amount_button("1000", "1K sats"))
-                            (amount_button("5000", "5K sats"))
-                            (amount_button("10000", "10K sats"))
-                            (amount_button("50000", "50K sats"))
-                        }
-                        div class="grid grid-cols-2 md:grid-cols-4 gap-4" {
-                            (amount_button("100000", "100K sats"))
-                            (amount_button("500000", "500K sats"))
-                            (amount_button("1000000", "1M sats"))
-                            (amount_button("custom", "Custom"))
-                        }
-
-                        // Custom amount
-                        div id="customAmountDiv" class="hidden mt-4" {
-                            label for="customAmount" class="block mb-2 text-sm font-medium text-primary" {
-                                "Custom Amount (sats)"
-                            }
-                            div class="flex gap-2" {
-                                input type="number" id="customAmount" min="1" step="1"
-                                    class="flex-1 bg-tertiary border border-accent-muted text-primary text-sm rounded-lg focus:ring-accent focus:border-accent p-2.5"
-                                    placeholder="Enter amount in satoshis";
-                                button type="button" id="customSubmit"
-                                    class="px-4 py-2 btn-primary" {
-                                    "Create Invoice"
-                                }
+                        div class="flex gap-2" {
+                            input type="number" id="customAmount" min="1" step="1"
+                                class="flex-1 bg-tertiary border border-accent-muted text-primary text-sm rounded-lg focus:ring-accent focus:border-accent p-2.5"
+                                placeholder="Enter amount in satoshis";
+                            button type="button" id="customSubmit"
+                                class="px-4 py-2 btn-primary" {
+                                "Create Invoice"
                             }
                         }
                     }
-
-                    // Invoice display area (will be populated by HTMX)
-                    div id="invoiceArea" class="hidden mt-6" {}
-
-                    // Payment status area (will be populated by HTMX when payment received)
-                    div id="paymentStatus" {}
                 }
-            }
 
-            // How it works
-            div class="bg-secondary rounded-lg p-8 mt-8 border border-accent-muted" {
-                h2 class="text-2xl font-bold mb-4 text-highlight" { "How Donations Work" }
-                div class="space-y-4 text-secondary" {
-                    p {
-                        "All donations go into a shared pool that automatically refills treasure locations. "
-                        "Each location refills at a rate of 1 sat per minute (60 sats per hour), up to its maximum capacity."
-                    }
-                    p {
-                        "When treasure hunters scan NFC tags and claim sats, the location balance decreases. "
-                        "The refill system ensures locations stay active and hunters can keep finding treasure!"
-                    }
-                    p class="text-highlight font-semibold" {
-                        "Your donation keeps the treasure hunt alive for everyone!"
-                    }
+                // Invoice display area (will be populated by HTMX)
+                div id="invoiceArea" class="hidden mt-6" {}
+
+                // Payment status area (will be populated by HTMX when payment received)
+                div id="paymentStatus" {}
+            }
+        }
+
+        // How it works
+        div class="bg-secondary rounded-lg p-8 mt-8 border border-accent-muted" {
+            h2 class="text-2xl font-bold mb-4 text-highlight" { "How Donations Work" }
+            div class="space-y-4 text-secondary" {
+                p {
+                    "All donations go into a shared pool that automatically refills treasure locations. "
+                    "Each location refills at a rate of 1 sat per minute (60 sats per hour), up to its maximum capacity."
+                }
+                p {
+                    "When treasure hunters scan NFC tags and claim sats, the location balance decreases. "
+                    "The refill system ensures locations stay active and hunters can keep finding treasure!"
+                }
+                p class="text-highlight font-semibold" {
+                    "Your donation keeps the treasure hunt alive for everyone!"
                 }
             }
         }

@@ -3,9 +3,8 @@ use maud::{html, Markup};
 
 pub fn profile(_user: &User, locations: &[Location], max_sats_per_location: i64) -> Markup {
     html! {
-        div class="max-w-6xl mx-auto" {
-            // Locations section
-            div class="mb-8" {
+        // Locations section
+        div class="mb-8" {
                 div class="flex justify-between items-center mb-6" {
                     h1 class="text-4xl font-bold text-highlight" {
                         "My Locations "
@@ -38,7 +37,6 @@ pub fn profile(_user: &User, locations: &[Location], max_sats_per_location: i64)
                     }
                 }
             }
-        }
     }
 }
 

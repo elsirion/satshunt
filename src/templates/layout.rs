@@ -45,7 +45,7 @@ pub fn base_with_user(title: &str, content: Markup, username: Option<&str>) -> M
             }
             body {
                 (navbar(username))
-                main class="container mx-auto px-4 py-8" {
+                main class="content-container py-8" {
                     (content)
                 }
                 (footer())
@@ -57,7 +57,7 @@ pub fn base_with_user(title: &str, content: Markup, username: Option<&str>) -> M
 fn navbar(username: Option<&str>) -> Markup {
     html! {
         nav class="bg-secondary border-b border-accent-muted" {
-            div class="max-w-screen-xl mx-auto p-4" {
+            div class="content-container py-4" {
                 div class="flex items-center justify-between" {
                     // Left: Logo
                     a href="/" class="flex items-center space-x-2" {
@@ -195,7 +195,7 @@ fn navbar(username: Option<&str>) -> Markup {
 fn footer() -> Markup {
     html! {
         footer class="bg-secondary border-t border-accent-muted mt-16" {
-            div class="max-w-screen-xl mx-auto p-4 md:p-8" {
+            div class="content-container py-4 md:py-8" {
                 div class="sm:flex sm:items-center sm:justify-between" {
                     span class="text-sm text-secondary sm:text-center" {
                         "© 2024 SatsHunt. A Lightning treasure hunt game."

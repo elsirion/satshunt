@@ -7,6 +7,9 @@
  */
 
 :root {
+  /* Layout */
+  --max-content-width: 1280px; /* Same as Tailwind's max-w-screen-xl */
+
   /* Background */
   --bg-primary: #0D0D0D;
   --bg-secondary: #141414;
@@ -51,6 +54,15 @@
 body {
   background-color: var(--bg-primary);
   color: var(--text-primary);
+}
+
+/* Layout utility classes */
+.content-container {
+  max-width: var(--max-content-width);
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: 1rem;
+  padding-right: 1rem;
 }
 
 /* Utility classes for common color patterns */
