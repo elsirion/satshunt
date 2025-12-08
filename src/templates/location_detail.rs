@@ -220,11 +220,13 @@ pub fn location_detail(location: &Location, photos: &[Photo], scans: &[Scan], ma
                             div class="relative group" {
                                 img src={"/uploads/" (photo.file_path)}
                                     alt="Location photo"
-                                    class="w-full h-48 object-cover rounded-lg border border-accent-muted";
+                                    class="w-full h-48 object-cover rounded-lg border border-accent-muted cursor-pointer hover:opacity-90 transition-opacity"
+                                    onclick={"openPhotoViewer('/uploads/" (photo.file_path) "')"};
                                 @if can_manage_photos {
                                     button
                                         onclick={
-                                            "if(confirm('Are you sure you want to delete this photo?')) { \
+                                            "event.stopPropagation(); \
+                                            if(confirm('Are you sure you want to delete this photo?')) { \
                                             fetch('/api/photos/" (photo.id) "', { method: 'DELETE' }) \
                                             .then(r => r.ok ? location.reload() : alert('Failed to delete photo')) \
                                             }"
@@ -370,5 +372,44 @@ pub fn location_detail(location: &Location, photos: &[Photo], scans: &[Scan], ma
             </script>
             "#, location.id)))
         }
+
+        // Photo viewer lightbox
+        div id="photoViewer" class="hidden fixed inset-0 bg-black bg-opacity-60 z-[9999] flex items-center justify-center"
+            onclick="closePhotoViewer()" {
+            // Close button
+            button class="absolute top-4 right-4 text-white hover:text-gray-300 transition-colors z-10"
+                onclick="closePhotoViewer()"
+                aria-label="Close" {
+                i class="fa-solid fa-xmark text-4xl" {}
+            }
+            // Image
+            img id="photoViewerImage" src="" alt="Full size photo" class="max-w-full max-h-full object-contain cursor-default p-4";
+        }
+
+        // Photo viewer script
+        (PreEscaped(r#"
+        <script>
+            function openPhotoViewer(photoUrl) {
+                const viewer = document.getElementById('photoViewer');
+                const img = document.getElementById('photoViewerImage');
+                img.src = photoUrl;
+                viewer.classList.remove('hidden');
+                document.body.style.overflow = 'hidden';
+            }
+
+            function closePhotoViewer() {
+                const viewer = document.getElementById('photoViewer');
+                viewer.classList.add('hidden');
+                document.body.style.overflow = '';
+            }
+
+            // Close on Escape key
+            document.addEventListener('keydown', function(e) {
+                if (e.key === 'Escape') {
+                    closePhotoViewer();
+                }
+            });
+        </script>
+        "#))
     }
 }
