@@ -64,8 +64,8 @@ pub async fn create_location(
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
-    // Give the location initial 5 sats from donation pool for activation
-    const INITIAL_SATS: i64 = 5;
+    // Give the location initial 5 sats (5000 msats) from donation pool for activation
+    const INITIAL_MSATS: i64 = 5000;
 
     // Check if donation pool has enough
     let donation_pool = state.db.get_donation_pool().await.map_err(|e| {
@@ -73,25 +73,25 @@ pub async fn create_location(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    if donation_pool.total_sats >= INITIAL_SATS {
+    if donation_pool.total_msats >= INITIAL_MSATS {
         // Deduct from donation pool
-        state.db.subtract_from_donation_pool(INITIAL_SATS).await.map_err(|e| {
+        state.db.subtract_from_donation_pool(INITIAL_MSATS).await.map_err(|e| {
             tracing::error!("Failed to subtract from donation pool: {}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
         // Add to location
-        state.db.update_location_sats(&location.id, INITIAL_SATS).await.map_err(|e| {
-            tracing::error!("Failed to update location sats: {}", e);
+        state.db.update_location_msats(&location.id, INITIAL_MSATS).await.map_err(|e| {
+            tracing::error!("Failed to update location msats: {}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
-        tracing::info!("Gave {} initial sats to new location: {}", INITIAL_SATS, location.name);
+        tracing::info!("Gave {} initial sats to new location: {}", INITIAL_MSATS / 1000, location.name);
     } else {
         tracing::warn!(
             "Donation pool too low ({} sats) to give initial {} sats to location: {}",
-            donation_pool.total_sats,
-            INITIAL_SATS,
+            donation_pool.total_sats(),
+            INITIAL_MSATS / 1000,
             location.name
         );
     }
@@ -120,10 +120,11 @@ pub async fn lnurlw_endpoint(
 
     let callback_url = format!("{}/api/lnurlw/{}/callback", state.base_url, location_id);
 
+    // Show only the withdrawable amount (accounting for fees)
     let response = LnurlWithdrawResponse::new(
         callback_url,
         location.lnurlw_secret.clone(),
-        location.current_sats,
+        location.withdrawable_sats(),
         &location.name,
     );
 
@@ -152,14 +153,15 @@ pub async fn lnurlw_callback(
         return Ok(Json(LnurlCallbackResponse::error("Invalid secret")));
     }
 
-    // Check if location has sats available
-    if location.current_sats <= 0 {
+    // Check if location has sats available (accounting for fees)
+    let withdrawable_msats = location.withdrawable_msats();
+    if withdrawable_msats <= 0 {
         return Ok(Json(LnurlCallbackResponse::error("No sats available")));
     }
 
     // TODO: Parse invoice to get the amount
-    // For now, we'll withdraw all available sats
-    let amount_to_withdraw = location.current_sats;
+    // For now, we'll withdraw the withdrawable amount (after fees)
+    let amount_to_withdraw_msats = withdrawable_msats;
 
     // Pay the invoice
     state
@@ -171,21 +173,22 @@ pub async fn lnurlw_callback(
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
-    // Update location balance
-    let new_balance = location.current_sats - amount_to_withdraw;
+    // Update location balance - subtract the ACTUAL amount from balance
+    // (withdrawable amount + fees = full balance reduction)
+    let new_balance_msats = 0; // After withdrawal, balance goes to 0
     state
         .db
-        .update_location_sats(&location_id, new_balance)
+        .update_location_msats(&location_id, new_balance_msats)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to update location sats: {}", e);
+            tracing::error!("Failed to update location msats: {}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
-    // Record the scan
+    // Record the scan with the amount that was actually withdrawn
     state
         .db
-        .record_scan(&location_id, amount_to_withdraw)
+        .record_scan(&location_id, amount_to_withdraw_msats)
         .await
         .map_err(|e| {
             tracing::error!("Failed to record scan: {}", e);
@@ -221,7 +224,7 @@ pub async fn lnurlw_callback(
     tracing::info!(
         "Withdrawal from location {} for {} sats",
         location.name,
-        amount_to_withdraw
+        amount_to_withdraw_msats / 1000
     );
 
     Ok(Json(LnurlCallbackResponse::ok()))
@@ -334,13 +337,14 @@ pub async fn wait_for_donation(
 
     tracing::info!("Payment received! Adding {} sats to donation pool", amount);
 
-    // Add to donation pool
-    let pool = state.db.add_to_donation_pool(amount).await.map_err(|e| {
+    // Add to donation pool (convert sats to msats)
+    let amount_msats = amount * 1000;
+    let pool = state.db.add_to_donation_pool(amount_msats).await.map_err(|e| {
         tracing::error!("Failed to add to donation pool: {}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    tracing::info!("Donation pool updated. New total: {} sats", pool.total_sats);
+    tracing::info!("Donation pool updated. New total: {} sats", pool.total_sats());
 
     // Return success HTML fragment for HTMX to swap in
     let html = format!(
@@ -352,7 +356,7 @@ pub async fn wait_for_donation(
             <p class="text-sm text-slate-400 mb-1">New Pool Total</p>
             <p class="text-4xl font-bold text-yellow-400">{} ⚡</p>
         </div>"#,
-        amount, pool.total_sats
+        amount, pool.total_sats()
     );
 
     Ok(axum::response::Html(html))
@@ -628,17 +632,17 @@ pub async fn delete_location(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    // If location has sats, return them to donation pool
-    if location.current_sats > 0 {
+    // If location has msats, return them to donation pool
+    if location.current_msats > 0 {
         state
             .db
-            .add_to_donation_pool(location.current_sats)
+            .add_to_donation_pool(location.current_msats)
             .await
             .map_err(|e| {
-                tracing::error!("Failed to return sats to donation pool: {}", e);
+                tracing::error!("Failed to return msats to donation pool: {}", e);
                 StatusCode::INTERNAL_SERVER_ERROR
             })?;
-        tracing::info!("Returned {} sats to donation pool from deleted location", location.current_sats);
+        tracing::info!("Returned {} sats to donation pool from deleted location", location.current_sats());
     }
 
     // Delete the location
@@ -675,9 +679,9 @@ pub async fn manual_refill(State(state): State<Arc<AppState>>) -> Result<Json<se
     })?;
 
     let now = Utc::now();
-    let mut total_refilled = 0i64;
+    let mut total_refilled_msats = 0i64;
     let mut locations_refilled = 0;
-    let mut remaining_pool = donation_pool.total_sats;
+    let mut remaining_pool_msats = donation_pool.total_msats;
 
     for location in locations {
         // Calculate how much time has passed since last refill in minutes
@@ -687,29 +691,30 @@ pub async fn manual_refill(State(state): State<Arc<AppState>>) -> Result<Json<se
             continue; // Not time to refill yet
         }
 
-        // Calculate refill amount (1 sat per minute)
-        let refill_amount = minutes_since_refill;
-        let new_balance = (location.current_sats + refill_amount).min(state.max_sats_per_location);
-        let actual_refill = new_balance - location.current_sats;
+        // Calculate refill amount (1 sat per minute = 1000 msats per minute)
+        let refill_amount_msats = minutes_since_refill * 1000;
+        let max_msats = state.max_sats_per_location * 1000;
+        let new_balance_msats = (location.current_msats + refill_amount_msats).min(max_msats);
+        let actual_refill_msats = new_balance_msats - location.current_msats;
 
-        if actual_refill <= 0 {
+        if actual_refill_msats <= 0 {
             continue; // Already at max
         }
 
         // Check if remaining pool has enough
-        if remaining_pool < actual_refill {
+        if remaining_pool_msats < actual_refill_msats {
             tracing::warn!(
-                "Donation pool too low to refill location {}: need {}, have {}",
+                "Donation pool too low to refill location {}: need {} msats, have {} msats",
                 location.name,
-                actual_refill,
-                remaining_pool
+                actual_refill_msats,
+                remaining_pool_msats
             );
             continue;
         }
 
         // Update location balance
-        state.db.update_location_sats(&location.id, new_balance).await.map_err(|e| {
-            tracing::error!("Failed to update location sats: {}", e);
+        state.db.update_location_msats(&location.id, new_balance_msats).await.map_err(|e| {
+            tracing::error!("Failed to update location msats: {}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -718,22 +723,22 @@ pub async fn manual_refill(State(state): State<Arc<AppState>>) -> Result<Json<se
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
-        total_refilled += actual_refill;
-        remaining_pool -= actual_refill;
+        total_refilled_msats += actual_refill_msats;
+        remaining_pool_msats -= actual_refill_msats;
         locations_refilled += 1;
 
         tracing::info!(
             "Refilled location {} with {} sats (now at {}/{})",
             location.name,
-            actual_refill,
-            new_balance,
+            actual_refill_msats / 1000,
+            new_balance_msats / 1000,
             state.max_sats_per_location
         );
     }
 
     // Subtract from donation pool
-    if total_refilled > 0 {
-        state.db.subtract_from_donation_pool(total_refilled).await.map_err(|e| {
+    if total_refilled_msats > 0 {
+        state.db.subtract_from_donation_pool(total_refilled_msats).await.map_err(|e| {
             tracing::error!("Failed to subtract from donation pool: {}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
@@ -747,9 +752,9 @@ pub async fn manual_refill(State(state): State<Arc<AppState>>) -> Result<Json<se
     Ok(Json(json!({
         "success": true,
         "locations_refilled": locations_refilled,
-        "total_sats_refilled": total_refilled,
-        "pool_before": donation_pool.total_sats,
-        "pool_after": new_pool.total_sats
+        "total_sats_refilled": total_refilled_msats / 1000,
+        "pool_before": donation_pool.total_sats(),
+        "pool_after": new_pool.total_sats()
     })))
 }
 

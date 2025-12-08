@@ -55,7 +55,13 @@ pub fn map(locations: &[Location], max_sats_per_location: i64) -> Markup {
             const bounds = new maplibregl.LngLatBounds();
 
             locations.forEach(loc => {{
-                const satsPercent = (loc.current_sats / maxSatsPerLocation) * 100;
+                // Calculate withdrawable amount (accounting for 2 sat fee + 0.5% routing fee)
+                const routingFeeMsats = Math.ceil(loc.current_msats * 0.005);
+                const fixedFeeMsats = 2000;
+                const withdrawableMsats = Math.max(0, loc.current_msats - routingFeeMsats - fixedFeeMsats);
+                const withdrawableSats = Math.floor(withdrawableMsats / 1000);
+
+                const satsPercent = (withdrawableSats / maxSatsPerLocation) * 100;
                 const color = satsPercent > 50 ? '#22c55e' : satsPercent > 20 ? '#eab308' : '#ef4444';
 
                 // Create custom marker element
@@ -74,7 +80,7 @@ pub fn map(locations: &[Location], max_sats_per_location: i64) -> Markup {
                         .setHTML(`
                             <div style="color: #0f172a; padding: 8px;">
                                 <h3 style="font-weight: bold; margin-bottom: 4px;">${{loc.name}}</h3>
-                                <p style="margin: 4px 0;"><i class="fa-solid fa-bolt"></i> ${{loc.current_sats}} / ${{maxSatsPerLocation}} sats</p>
+                                <p style="margin: 4px 0;"><i class="fa-solid fa-bolt"></i> ${{withdrawableSats}} / ${{maxSatsPerLocation}} sats (after fees)</p>
                                 <a href="/locations/${{loc.id}}" style="color: #3b82f6; text-decoration: underline;">View details</a>
                             </div>
                         `))
@@ -95,8 +101,9 @@ pub fn map(locations: &[Location], max_sats_per_location: i64) -> Markup {
 }
 
 fn location_card(location: &Location, max_sats_per_location: i64) -> Markup {
+    let withdrawable_sats = location.withdrawable_sats();
     let sats_percent = if max_sats_per_location > 0 {
-        (location.current_sats as f64 / max_sats_per_location as f64 * 100.0) as i32
+        (withdrawable_sats as f64 / max_sats_per_location as f64 * 100.0) as i32
     } else {
         0
     };
@@ -125,7 +132,7 @@ fn location_card(location: &Location, max_sats_per_location: i64) -> Markup {
                 }
                 div class="text-right" {
                     div class=(format!("text-2xl font-bold {}", color_class)) {
-                        (location.current_sats) " "
+                        (withdrawable_sats) " "
                         i class="fa-solid fa-bolt" {}
                     }
                     div class="text-muted text-sm" {

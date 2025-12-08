@@ -13,7 +13,7 @@ pub fn donate(pool: &DonationPool) -> Markup {
             h2 class="text-2xl font-bold mb-4 text-highlight" { "Current Donation Pool" }
             div class="text-center" {
                 div class="text-6xl font-bold text-highlight mb-2" {
-                    (pool.total_sats) " "
+                    (pool.total_sats()) " "
                     i class="fa-solid fa-bolt" {}
                 }
                 p class="text-muted" { "Total sats available for refills" }

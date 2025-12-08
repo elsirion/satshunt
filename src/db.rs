@@ -106,7 +106,7 @@ impl Database {
             r#"
             INSERT INTO locations (
                 id, name, latitude, longitude, description,
-                current_sats, lnurlw_secret,
+                current_msats, lnurlw_secret,
                 created_at, last_refill_at, write_token, write_token_created_at, user_id, status
             )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -118,7 +118,7 @@ impl Database {
         .bind(latitude)
         .bind(longitude)
         .bind(&description)
-        .bind(0) // current_sats starts at 0
+        .bind(0) // current_msats starts at 0
         .bind(&lnurlw_secret)
         .bind(now)
         .bind(now)
@@ -186,9 +186,9 @@ impl Database {
         .map_err(Into::into)
     }
 
-    pub async fn update_location_sats(&self, id: &str, sats: i64) -> Result<SqliteQueryResult> {
-        sqlx::query("UPDATE locations SET current_sats = ? WHERE id = ?")
-            .bind(sats)
+    pub async fn update_location_msats(&self, id: &str, msats: i64) -> Result<SqliteQueryResult> {
+        sqlx::query("UPDATE locations SET current_msats = ? WHERE id = ?")
+            .bind(msats)
             .bind(id)
             .execute(&self.pool)
             .await
@@ -275,31 +275,31 @@ impl Database {
     }
 
     #[allow(dead_code)]
-    pub async fn update_donation_pool(&self, sats: i64) -> Result<SqliteQueryResult> {
-        sqlx::query("UPDATE donation_pool SET total_sats = ?, updated_at = ? WHERE id = 1")
-            .bind(sats)
+    pub async fn update_donation_pool(&self, msats: i64) -> Result<SqliteQueryResult> {
+        sqlx::query("UPDATE donation_pool SET total_msats = ?, updated_at = ? WHERE id = 1")
+            .bind(msats)
             .bind(Utc::now())
             .execute(&self.pool)
             .await
             .map_err(Into::into)
     }
 
-    pub async fn add_to_donation_pool(&self, sats: i64) -> Result<DonationPool> {
+    pub async fn add_to_donation_pool(&self, msats: i64) -> Result<DonationPool> {
         sqlx::query_as::<_, DonationPool>(
-            "UPDATE donation_pool SET total_sats = total_sats + ?, updated_at = ? WHERE id = 1 RETURNING *"
+            "UPDATE donation_pool SET total_msats = total_msats + ?, updated_at = ? WHERE id = 1 RETURNING *"
         )
-        .bind(sats)
+        .bind(msats)
         .bind(Utc::now())
         .fetch_one(&self.pool)
         .await
         .map_err(Into::into)
     }
 
-    pub async fn subtract_from_donation_pool(&self, sats: i64) -> Result<DonationPool> {
+    pub async fn subtract_from_donation_pool(&self, msats: i64) -> Result<DonationPool> {
         sqlx::query_as::<_, DonationPool>(
-            "UPDATE donation_pool SET total_sats = total_sats - ?, updated_at = ? WHERE id = 1 RETURNING *"
+            "UPDATE donation_pool SET total_msats = total_msats - ?, updated_at = ? WHERE id = 1 RETURNING *"
         )
-        .bind(sats)
+        .bind(msats)
         .bind(Utc::now())
         .fetch_one(&self.pool)
         .await
@@ -307,15 +307,15 @@ impl Database {
     }
 
     // Scan operations
-    pub async fn record_scan(&self, location_id: &str, sats_withdrawn: i64) -> Result<Scan> {
+    pub async fn record_scan(&self, location_id: &str, msats_withdrawn: i64) -> Result<Scan> {
         let id = Uuid::new_v4().to_string();
 
         sqlx::query_as::<_, Scan>(
-            "INSERT INTO scans (id, location_id, sats_withdrawn, scanned_at) VALUES (?, ?, ?, ?) RETURNING *"
+            "INSERT INTO scans (id, location_id, msats_withdrawn, scanned_at) VALUES (?, ?, ?, ?) RETURNING *"
         )
         .bind(&id)
         .bind(location_id)
-        .bind(sats_withdrawn)
+        .bind(msats_withdrawn)
         .bind(Utc::now())
         .fetch_one(&self.pool)
         .await
@@ -340,9 +340,9 @@ impl Database {
             .fetch_one(&self.pool)
             .await?;
 
-        let total_sats_available: Option<i64> =
+        let total_msats_available: Option<i64> =
             sqlx::query_scalar(
-                "SELECT SUM(current_sats) FROM locations WHERE status = 'active'"
+                "SELECT SUM(current_msats) FROM locations WHERE status = 'active'"
             )
                 .fetch_one(&self.pool)
                 .await?;
@@ -355,9 +355,9 @@ impl Database {
 
         Ok(Stats {
             total_locations,
-            total_sats_available: total_sats_available.unwrap_or(0),
+            total_sats_available: total_msats_available.unwrap_or(0) / 1000,  // Convert to sats for display
             total_scans,
-            donation_pool_sats: donation_pool.total_sats,
+            donation_pool_sats: donation_pool.total_sats(),  // Use helper method
         })
     }
 

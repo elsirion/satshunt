@@ -83,7 +83,7 @@ pub struct Location {
     pub longitude: f64,
     pub description: Option<String>,
     pub created_at: DateTime<Utc>,
-    pub current_sats: i64,
+    pub current_msats: i64,
     pub lnurlw_secret: String,
     pub last_refill_at: DateTime<Utc>,
     pub write_token: Option<String>,
@@ -105,6 +105,32 @@ impl Location {
     pub fn is_active(&self) -> bool {
         self.status == "active"
     }
+
+    /// Convert msats to sats for display purposes
+    pub fn current_sats(&self) -> i64 {
+        self.current_msats / 1000
+    }
+
+    /// Calculate the withdrawable amount accounting for fees
+    /// Subtracts 2 sats fixed fee and 0.5% routing fee
+    pub fn withdrawable_msats(&self) -> i64 {
+        // Calculate routing fee (0.5%)
+        let routing_fee_msats = (self.current_msats as f64 * 0.005).ceil() as i64;
+
+        // Fixed fee of 2 sats (2000 msats)
+        let fixed_fee_msats = 2000;
+
+        // Total fees
+        let total_fee_msats = routing_fee_msats + fixed_fee_msats;
+
+        // Withdrawable amount (can't go below 0)
+        (self.current_msats - total_fee_msats).max(0)
+    }
+
+    /// Get the withdrawable amount in sats for display
+    pub fn withdrawable_sats(&self) -> i64 {
+        self.withdrawable_msats() / 1000
+    }
 }
 
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
@@ -118,16 +144,30 @@ pub struct Photo {
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct DonationPool {
     pub id: i64,
-    pub total_sats: i64,
+    pub total_msats: i64,
     pub updated_at: DateTime<Utc>,
+}
+
+impl DonationPool {
+    /// Get total in sats for display
+    pub fn total_sats(&self) -> i64 {
+        self.total_msats / 1000
+    }
 }
 
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct Scan {
     pub id: String,
     pub location_id: String,
-    pub sats_withdrawn: i64,
+    pub msats_withdrawn: i64,
     pub scanned_at: DateTime<Utc>,
+}
+
+impl Scan {
+    /// Get withdrawn amount in sats for display
+    pub fn sats_withdrawn(&self) -> i64 {
+        self.msats_withdrawn / 1000
+    }
 }
 
 #[derive(Debug, Deserialize)]

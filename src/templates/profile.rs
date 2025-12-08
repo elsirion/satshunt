@@ -41,8 +41,10 @@ pub fn profile(_user: &User, locations: &[Location], max_sats_per_location: i64)
 }
 
 fn location_card(location: &Location, max_sats_per_location: i64) -> Markup {
+    // Calculate percentage based on withdrawable amount (after fees)
+    let withdrawable_sats = location.withdrawable_sats();
     let sats_percent = if max_sats_per_location > 0 {
-        (location.current_sats as f64 / max_sats_per_location as f64 * 100.0) as i32
+        (withdrawable_sats as f64 / max_sats_per_location as f64 * 100.0) as i32
     } else {
         0
     };
@@ -97,11 +99,11 @@ fn location_card(location: &Location, max_sats_per_location: i64) -> Markup {
                     div class="flex justify-between items-center pt-4 border-t border-accent-muted" {
                         div class="text-right" {
                             div class=(format!("text-2xl font-bold {}", color_class)) {
-                                (location.current_sats) " "
+                                (withdrawable_sats) " "
                                 i class="fa-solid fa-bolt" {}
                             }
                             div class="text-muted text-sm" {
-                                "/ " (max_sats_per_location) " sats"
+                                "/ " (max_sats_per_location) " sats (after fees)"
                             }
                         }
 

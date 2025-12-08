@@ -60,8 +60,8 @@ impl RefillService {
         let donation_pool = self.db.get_donation_pool().await?;
 
         let now = Utc::now();
-        let mut total_refilled = 0i64;
-        let mut remaining_pool = donation_pool.total_sats;
+        let mut total_refilled_msats = 0i64;
+        let mut remaining_pool_msats = donation_pool.total_msats;
 
         for location in locations {
             // Calculate how much time has passed since last refill in minutes
@@ -71,50 +71,51 @@ impl RefillService {
                 continue; // Not time to refill yet
             }
 
-            // Calculate refill amount (1 sat per minute)
-            let sats_per_minute = (self.config.sats_per_hour as f64 / 60.0).round() as i64;
-            let refill_amount = minutes_since_refill * sats_per_minute;
-            let new_balance = (location.current_sats + refill_amount).min(self.config.max_sats_per_location);
-            let actual_refill = new_balance - location.current_sats;
+            // Calculate refill amount (1 sat per minute = 1000 msats per minute)
+            let msats_per_minute = (self.config.sats_per_hour as f64 / 60.0 * 1000.0).round() as i64;
+            let refill_amount_msats = minutes_since_refill * msats_per_minute;
+            let max_msats = self.config.max_sats_per_location * 1000;
+            let new_balance_msats = (location.current_msats + refill_amount_msats).min(max_msats);
+            let actual_refill_msats = new_balance_msats - location.current_msats;
 
-            if actual_refill <= 0 {
+            if actual_refill_msats <= 0 {
                 continue; // Already at max
             }
 
             // Check if remaining pool has enough
-            if remaining_pool < actual_refill {
+            if remaining_pool_msats < actual_refill_msats {
                 tracing::warn!(
-                    "Donation pool too low to refill location {}: need {}, have {}",
+                    "Donation pool too low to refill location {}: need {} msats, have {} msats",
                     location.name,
-                    actual_refill,
-                    remaining_pool
+                    actual_refill_msats,
+                    remaining_pool_msats
                 );
                 continue;
             }
 
             // Update location balance
-            self.db.update_location_sats(&location.id, new_balance).await?;
+            self.db.update_location_msats(&location.id, new_balance_msats).await?;
             self.db.update_last_refill(&location.id).await?;
 
-            total_refilled += actual_refill;
-            remaining_pool -= actual_refill;
+            total_refilled_msats += actual_refill_msats;
+            remaining_pool_msats -= actual_refill_msats;
 
             tracing::info!(
                 "Refilled location {} with {} sats (now at {}/{})",
                 location.name,
-                actual_refill,
-                new_balance,
+                actual_refill_msats / 1000,
+                new_balance_msats / 1000,
                 self.config.max_sats_per_location
             );
         }
 
         // Subtract from donation pool
-        if total_refilled > 0 {
-            self.db.subtract_from_donation_pool(total_refilled).await?;
+        if total_refilled_msats > 0 {
+            self.db.subtract_from_donation_pool(total_refilled_msats).await?;
             tracing::info!(
                 "Total refilled: {} sats, remaining pool: {} sats",
-                total_refilled,
-                remaining_pool
+                total_refilled_msats / 1000,
+                remaining_pool_msats / 1000
             );
         }
 

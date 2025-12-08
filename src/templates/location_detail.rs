@@ -2,8 +2,9 @@ use crate::models::{Location, Photo, Scan};
 use maud::{html, Markup, PreEscaped};
 
 pub fn location_detail(location: &Location, photos: &[Photo], scans: &[Scan], max_sats_per_location: i64, current_user_id: Option<&str>, error: Option<&str>) -> Markup {
+    let withdrawable_sats = location.withdrawable_sats();
     let sats_percent = if max_sats_per_location > 0 {
-        (location.current_sats as f64 / max_sats_per_location as f64 * 100.0) as i32
+        (withdrawable_sats as f64 / max_sats_per_location as f64 * 100.0) as i32
     } else {
         0
     };
@@ -172,9 +173,9 @@ pub fn location_detail(location: &Location, photos: &[Photo], scans: &[Scan], ma
                 // Stats grid
                 div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6" {
                     div class="bg-tertiary rounded p-4" {
-                        div class="text-sm text-muted mb-1" { "Available Sats" }
+                        div class="text-sm text-muted mb-1" { "Available Sats (after fees)" }
                         div class="text-2xl font-bold text-highlight" {
-                            (location.current_sats) " "
+                            (withdrawable_sats) " "
                             i class="fa-solid fa-bolt" {}
                         }
                     }
@@ -286,7 +287,7 @@ pub fn location_detail(location: &Location, photos: &[Photo], scans: &[Scan], ma
                                         }
                                         td class="py-3 px-4 text-right font-mono" {
                                             span class="text-highlight font-semibold" {
-                                                (scan.sats_withdrawn)
+                                                (scan.sats_withdrawn())
                                             }
                                             " "
                                             i class="fa-solid fa-bolt text-highlight" {}
@@ -326,14 +327,14 @@ pub fn location_detail(location: &Location, photos: &[Photo], scans: &[Scan], ma
             new maplibregl.Marker()
                 .setLngLat([{}, {}])
                 .setPopup(new maplibregl.Popup({{ offset: 25 }})
-                    .setHTML('<div style="color: #0f172a; padding: 8px;"><b>{}</b><br>{} sats available</div>'))
+                    .setHTML('<div style="color: #0f172a; padding: 8px;"><b>{}</b><br>{} sats available (after fees)</div>'))
                 .addTo(map)
                 .togglePopup();
         </script>
         "#,
             location.longitude, location.latitude,
             location.longitude, location.latitude,
-            location.name, location.current_sats
+            location.name, withdrawable_sats
         )))
 
         // Photo upload script
