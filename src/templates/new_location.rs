@@ -85,28 +85,23 @@ pub fn new_location() -> Markup {
 
             // Initialize preview map
             function initMap() {
-                map = L.map('previewMap').setView([37.7749, -122.4194], 13);
+                map = new maplibregl.Map({
+                    container: 'previewMap',
+                    style: 'https://tiles.openfreemap.org/styles/positron',
+                    center: [-122.4194, 37.7749],
+                    zoom: 13
+                });
 
-                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                    attribution: '© OpenStreetMap contributors',
-                    className: 'map-tiles'
-                }).addTo(map);
+                map.addControl(new maplibregl.NavigationControl());
 
-                // Add dark theme
-                const style = document.createElement('style');
-                style.textContent = `
-                    .map-tiles {
-                        filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%);
-                    }
-                `;
-                document.head.appendChild(style);
+                marker = new maplibregl.Marker({draggable: true})
+                    .setLngLat([-122.4194, 37.7749])
+                    .addTo(map);
 
-                marker = L.marker([37.7749, -122.4194], {draggable: true}).addTo(map);
-
-                marker.on('dragend', function(e) {
-                    const pos = marker.getLatLng();
-                    document.getElementById('latitude').value = pos.lat.toFixed(6);
-                    document.getElementById('longitude').value = pos.lng.toFixed(6);
+                marker.on('dragend', function() {
+                    const lngLat = marker.getLngLat();
+                    document.getElementById('latitude').value = lngLat.lat.toFixed(6);
+                    document.getElementById('longitude').value = lngLat.lng.toFixed(6);
                 });
             }
 
@@ -116,8 +111,8 @@ pub fn new_location() -> Markup {
                 const lng = parseFloat(document.getElementById('longitude').value);
 
                 if (!isNaN(lat) && !isNaN(lng)) {
-                    marker.setLatLng([lat, lng]);
-                    map.setView([lat, lng], 15);
+                    marker.setLngLat([lng, lat]);
+                    map.jumpTo({center: [lng, lat], zoom: 15});
                 }
             }
 
@@ -134,8 +129,8 @@ pub fn new_location() -> Markup {
                         document.getElementById('latitude').value = lat.toFixed(6);
                         document.getElementById('longitude').value = lng.toFixed(6);
 
-                        marker.setLatLng([lat, lng]);
-                        map.setView([lat, lng], 15);
+                        marker.setLngLat([lng, lat]);
+                        map.jumpTo({center: [lng, lat], zoom: 15});
                     }, function(error) {
                         alert('Unable to get location: ' + error.message);
                     });

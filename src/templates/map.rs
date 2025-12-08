@@ -39,54 +39,52 @@ pub fn map(locations: &[Location], max_sats_per_location: i64) -> Markup {
         // Map initialization script
         (PreEscaped(format!(r#"
         <script>
-            // Initialize map
-            const map = L.map('map').setView([37.7749, -122.4194], 12);
+            // Initialize map with MapLibre
+            const map = new maplibregl.Map({{
+                container: 'map',
+                style: 'https://tiles.openfreemap.org/styles/positron',
+                center: [-122.4194, 37.7749],
+                zoom: 12
+            }});
 
-            L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
-                attribution: '© OpenStreetMap contributors',
-                className: 'map-tiles'
-            }}).addTo(map);
-
-            // Add custom CSS for dark theme
-            const style = document.createElement('style');
-            style.textContent = `
-                .map-tiles {{
-                    filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%);
-                }}
-            `;
-            document.head.appendChild(style);
+            map.addControl(new maplibregl.NavigationControl());
 
             // Add locations as markers
             const locations = {locations};
             const maxSatsPerLocation = {max_sats_per_location};
-            let bounds = [];
+            const bounds = new maplibregl.LngLatBounds();
 
             locations.forEach(loc => {{
                 const satsPercent = (loc.current_sats / maxSatsPerLocation) * 100;
                 const color = satsPercent > 50 ? '#22c55e' : satsPercent > 20 ? '#eab308' : '#ef4444';
 
-                const marker = L.circleMarker([loc.latitude, loc.longitude], {{
-                    radius: 8,
-                    fillColor: color,
-                    color: '#fff',
-                    weight: 2,
-                    opacity: 1,
-                    fillOpacity: 0.8
-                }}).addTo(map);
+                // Create custom marker element
+                const el = document.createElement('div');
+                el.style.width = '20px';
+                el.style.height = '20px';
+                el.style.borderRadius = '50%';
+                el.style.backgroundColor = color;
+                el.style.border = '2px solid #fff';
+                el.style.cursor = 'pointer';
+                el.style.boxShadow = '0 2px 4px rgba(0,0,0,0.3)';
 
-                marker.bindPopup(`
-                    <div style="color: #0f172a;">
-                        <h3 style="font-weight: bold; margin-bottom: 4px;">${{loc.name}}</h3>
-                        <p style="margin: 4px 0;"><i class="fa-solid fa-bolt"></i> ${{loc.current_sats}} / ${{maxSatsPerLocation}} sats</p>
-                        <a href="/locations/${{loc.id}}" style="color: #3b82f6; text-decoration: underline;">View details</a>
-                    </div>
-                `);
+                const marker = new maplibregl.Marker({{element: el}})
+                    .setLngLat([loc.longitude, loc.latitude])
+                    .setPopup(new maplibregl.Popup({{ offset: 25 }})
+                        .setHTML(`
+                            <div style="color: #0f172a; padding: 8px;">
+                                <h3 style="font-weight: bold; margin-bottom: 4px;">${{loc.name}}</h3>
+                                <p style="margin: 4px 0;"><i class="fa-solid fa-bolt"></i> ${{loc.current_sats}} / ${{maxSatsPerLocation}} sats</p>
+                                <a href="/locations/${{loc.id}}" style="color: #3b82f6; text-decoration: underline;">View details</a>
+                            </div>
+                        `))
+                    .addTo(map);
 
-                bounds.push([loc.latitude, loc.longitude]);
+                bounds.extend([loc.longitude, loc.latitude]);
             }});
 
-            if (bounds.length > 0) {{
-                map.fitBounds(bounds, {{ padding: [50, 50] }});
+            if (locations.length > 0) {{
+                map.fitBounds(bounds, {{ padding: 50, animate: false }});
             }}
         </script>
         "#,

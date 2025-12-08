@@ -312,29 +312,27 @@ pub fn location_detail(location: &Location, photos: &[Photo], scans: &[Scan], ma
         // Map script
         (PreEscaped(format!(r#"
         <script>
-            // Initialize map
-            const map = L.map('map').setView([{}, {}], 15);
+            // Initialize map with MapLibre
+            const map = new maplibregl.Map({{
+                container: 'map',
+                style: 'https://tiles.openfreemap.org/styles/positron',
+                center: [{}, {}],
+                zoom: 15
+            }});
 
-            L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
-                attribution: '© OpenStreetMap contributors',
-                className: 'map-tiles'
-            }}).addTo(map);
+            map.addControl(new maplibregl.NavigationControl());
 
-            const style = document.createElement('style');
-            style.textContent = `
-                .map-tiles {{
-                    filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%);
-                }}
-            `;
-            document.head.appendChild(style);
-
-            L.marker([{}, {}]).addTo(map)
-                .bindPopup('<b>{}</b><br>{} sats available')
-                .openPopup();
+            // Add marker
+            new maplibregl.Marker()
+                .setLngLat([{}, {}])
+                .setPopup(new maplibregl.Popup({{ offset: 25 }})
+                    .setHTML('<div style="color: #0f172a; padding: 8px;"><b>{}</b><br>{} sats available</div>'))
+                .addTo(map)
+                .togglePopup();
         </script>
         "#,
-            location.latitude, location.longitude,
-            location.latitude, location.longitude,
+            location.longitude, location.latitude,
+            location.longitude, location.latitude,
             location.name, location.current_sats
         )))
 

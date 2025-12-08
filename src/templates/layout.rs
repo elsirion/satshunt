@@ -39,13 +39,9 @@ pub fn base_with_user(title: &str, content: Markup, username: Option<&str>) -> M
                 // HTMX
                 script src="https://unpkg.com/htmx.org@1.9.10" {}
 
-                // Leaflet for maps
-                link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-                    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
-                    crossorigin="";
-                script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-                    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
-                    crossorigin="" {}
+                // MapLibre GL JS for maps
+                link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css";
+                script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js" {}
             }
             body {
                 (navbar(username))
