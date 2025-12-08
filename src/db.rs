@@ -250,6 +250,22 @@ impl Database {
         .map_err(Into::into)
     }
 
+    pub async fn get_photo(&self, photo_id: &str) -> Result<Option<Photo>> {
+        sqlx::query_as::<_, Photo>("SELECT * FROM photos WHERE id = ?")
+            .bind(photo_id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(Into::into)
+    }
+
+    pub async fn delete_photo(&self, photo_id: &str) -> Result<SqliteQueryResult> {
+        sqlx::query("DELETE FROM photos WHERE id = ?")
+            .bind(photo_id)
+            .execute(&self.pool)
+            .await
+            .map_err(Into::into)
+    }
+
     // Donation pool operations
     pub async fn get_donation_pool(&self) -> Result<DonationPool> {
         sqlx::query_as::<_, DonationPool>("SELECT * FROM donation_pool WHERE id = 1")

@@ -8,7 +8,7 @@ pub fn new_location() -> Markup {
                 "Add New Location"
             }
 
-            form id="locationForm" action="/api/locations" method="post" enctype="multipart/form-data"
+            form id="locationForm" action="/api/locations" method="post"
                 class="bg-secondary rounded-lg p-8 border border-accent-muted space-y-6" {
 
                 // Name field
@@ -66,18 +66,6 @@ pub fn new_location() -> Markup {
                         "Location Preview"
                     }
                     div id="previewMap" class="w-full h-64 rounded-lg border border-accent-muted" {}
-                }
-
-                // Photo upload
-                div {
-                    label for="photos" class="block mb-2 text-sm font-medium text-primary" {
-                        "Photos"
-                    }
-                    input type="file" id="photos" name="photos" accept="image/*" multiple
-                        class="block w-full text-sm text-muted file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-highlight file:text-inverse hover:file:brightness-110";
-                    p class="mt-1 text-sm text-muted" {
-                        "Upload photos to help others find the location"
-                    }
                 }
 
                 // Submit button
@@ -160,12 +148,20 @@ pub fn new_location() -> Markup {
             document.getElementById('locationForm').addEventListener('submit', async function(e) {
                 e.preventDefault();
 
-                const formData = new FormData(this);
+                const formData = {
+                    name: document.getElementById('name').value,
+                    description: document.getElementById('description').value,
+                    latitude: parseFloat(document.getElementById('latitude').value),
+                    longitude: parseFloat(document.getElementById('longitude').value)
+                };
 
                 try {
                     const response = await fetch('/api/locations', {
                         method: 'POST',
-                        body: formData
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(formData)
                     });
 
                     if (response.ok) {

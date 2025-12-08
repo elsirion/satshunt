@@ -1,18 +1,28 @@
 use crate::models::{Location, Photo, Scan};
 use maud::{html, Markup, PreEscaped};
 
-pub fn location_detail(location: &Location, photos: &[Photo], scans: &[Scan], max_sats_per_location: i64) -> Markup {
+pub fn location_detail(location: &Location, photos: &[Photo], scans: &[Scan], max_sats_per_location: i64, current_user_id: Option<&str>, error: Option<&str>) -> Markup {
     let sats_percent = if max_sats_per_location > 0 {
         (location.current_sats as f64 / max_sats_per_location as f64 * 100.0) as i32
     } else {
         0
     };
 
+    let is_owner = current_user_id.map(|id| id == location.user_id).unwrap_or(false);
+    let can_manage_photos = is_owner && !location.is_active();
+
     html! {
         div class="max-w-4xl mx-auto" {
             // Back button
             a href="/map" class="inline-flex items-center text-highlight hover:bg-accent-hover mb-6" {
                 "← Back to map"
+            }
+
+            // Error message
+            @if let Some(error_msg) = error {
+                div class="bg-red-900 border border-red-700 text-red-200 px-4 py-3 rounded-lg mb-6" {
+                    p class="font-semibold" { "⚠ " (error_msg) }
+                }
             }
 
             // Status banner for non-active locations
@@ -45,13 +55,27 @@ pub fn location_detail(location: &Location, photos: &[Photo], scans: &[Scan], ma
                                     "This location has been created but the NFC sticker has not been programmed yet. "
                                     "It will not appear on the public map until it's programmed and activated."
                                 }
+                                @if photos.is_empty() {
+                                    p class="text-yellow-300 mb-3 font-semibold" {
+                                        i class="fa-solid fa-info-circle mr-1" {}
+                                        "Please add at least one photo before programming the NFC sticker."
+                                    }
+                                }
                                 div class="flex gap-3" {
                                     @if let Some(token) = &location.write_token {
                                         @if !location.write_token_used {
-                                            a href={"/setup/" (token)}
-                                                class="inline-flex items-center px-4 py-2 bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg font-semibold transition-colors" {
-                                                i class="fa-solid fa-microchip mr-2" {}
-                                                "Program NFC Sticker"
+                                            @if photos.is_empty() {
+                                                button disabled
+                                                    class="inline-flex items-center px-4 py-2 bg-gray-600 text-gray-400 rounded-lg font-semibold cursor-not-allowed" {
+                                                    i class="fa-solid fa-microchip mr-2" {}
+                                                    "Program NFC Sticker"
+                                                }
+                                            } @else {
+                                                a href={"/setup/" (token)}
+                                                    class="inline-flex items-center px-4 py-2 bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg font-semibold transition-colors" {
+                                                    i class="fa-solid fa-microchip mr-2" {}
+                                                    "Program NFC Sticker"
+                                                }
                                             }
                                         }
                                     }
@@ -72,13 +96,27 @@ pub fn location_detail(location: &Location, photos: &[Photo], scans: &[Scan], ma
                                     "The NFC sticker has been programmed. This location will become active and appear on the public map "
                                     "after the first successful scan and withdrawal."
                                 }
+                                @if photos.is_empty() {
+                                    p class="text-blue-300 mb-3 font-semibold" {
+                                        i class="fa-solid fa-info-circle mr-1" {}
+                                        "Note: You need at least one photo. Add photos below before the location goes live."
+                                    }
+                                }
                                 div class="flex gap-3" {
                                     @if let Some(token) = &location.write_token {
                                         @if !location.write_token_used {
-                                            a href={"/setup/" (token)}
-                                                class="inline-flex items-center px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold transition-colors" {
-                                                i class="fa-solid fa-redo mr-2" {}
-                                                "Re-program NFC Sticker"
+                                            @if photos.is_empty() {
+                                                button disabled
+                                                    class="inline-flex items-center px-4 py-2 bg-gray-600 text-gray-400 rounded-lg font-semibold cursor-not-allowed" {
+                                                    i class="fa-solid fa-redo mr-2" {}
+                                                    "Re-program NFC Sticker"
+                                                }
+                                            } @else {
+                                                a href={"/setup/" (token)}
+                                                    class="inline-flex items-center px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold transition-colors" {
+                                                    i class="fa-solid fa-redo mr-2" {}
+                                                    "Re-program NFC Sticker"
+                                                }
                                             }
                                         }
                                     }
@@ -170,17 +208,53 @@ pub fn location_detail(location: &Location, photos: &[Photo], scans: &[Scan], ma
             }
 
             // Photos
-            @if !photos.is_empty() {
-                div class="bg-secondary rounded-lg p-8 mb-8 border border-accent-muted" {
-                    h2 class="text-2xl font-bold mb-4 text-highlight" {
-                        i class="fa-solid fa-camera mr-2" {}
-                        "Photos"
-                    }
-                    div class="grid grid-cols-1 md:grid-cols-3 gap-4" {
+            div class="bg-secondary rounded-lg p-8 mb-8 border border-accent-muted" {
+                h2 class="text-2xl font-bold mb-4 text-highlight" {
+                    i class="fa-solid fa-camera mr-2" {}
+                    "Photos"
+                }
+
+                @if !photos.is_empty() {
+                    div id="photosGrid" class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6" {
                         @for photo in photos {
-                            img src={"/uploads/" (photo.file_path)}
-                                alt="Location photo"
-                                class="w-full h-48 object-cover rounded-lg border border-accent-muted";
+                            div class="relative group" {
+                                img src={"/uploads/" (photo.file_path)}
+                                    alt="Location photo"
+                                    class="w-full h-48 object-cover rounded-lg border border-accent-muted";
+                                @if can_manage_photos {
+                                    button
+                                        onclick={
+                                            "if(confirm('Are you sure you want to delete this photo?')) { \
+                                            fetch('/api/photos/" (photo.id) "', { method: 'DELETE' }) \
+                                            .then(r => r.ok ? location.reload() : alert('Failed to delete photo')) \
+                                            }"
+                                        }
+                                        class="absolute top-2 right-2 bg-red-600 hover:bg-red-700 text-white p-2 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity" {
+                                        i class="fa-solid fa-trash" {}
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } @else {
+                    p class="text-muted mb-6" { "No photos yet." }
+                }
+
+                @if can_manage_photos {
+                    div class="border-t border-accent-muted pt-6" {
+                        form id="photoUploadForm" enctype="multipart/form-data" {
+                            label for="photoInput" class="block mb-2 text-sm font-medium text-primary" {
+                                "Add Photo"
+                            }
+                            div class="flex gap-3" {
+                                input type="file" id="photoInput" name="photo" accept="image/*"
+                                    class="flex-1 block text-sm text-muted file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-highlight file:text-inverse hover:file:brightness-110";
+                                button type="submit"
+                                    class="px-6 py-2 btn-primary" {
+                                    i class="fa-solid fa-upload mr-2" {}
+                                    "Upload"
+                                }
+                            }
                         }
                     }
                 }
@@ -261,5 +335,40 @@ pub fn location_detail(location: &Location, photos: &[Photo], scans: &[Scan], ma
             location.latitude, location.longitude,
             location.name, location.current_sats
         )))
+
+        // Photo upload script
+        @if can_manage_photos {
+            (PreEscaped(format!(r#"
+            <script>
+                document.getElementById('photoUploadForm').addEventListener('submit', async function(e) {{
+                    e.preventDefault();
+
+                    const fileInput = document.getElementById('photoInput');
+                    if (!fileInput.files || fileInput.files.length === 0) {{
+                        alert('Please select a photo to upload');
+                        return;
+                    }}
+
+                    const formData = new FormData();
+                    formData.append('photo', fileInput.files[0]);
+
+                    try {{
+                        const response = await fetch('/api/locations/{}/photos', {{
+                            method: 'POST',
+                            body: formData
+                        }});
+
+                        if (response.ok) {{
+                            location.reload();
+                        }} else {{
+                            alert('Failed to upload photo');
+                        }}
+                    }} catch (err) {{
+                        alert('Error uploading photo: ' + err.message);
+                    }}
+                }});
+            </script>
+            "#, location.id)))
+        }
     }
 }

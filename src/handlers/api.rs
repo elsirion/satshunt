@@ -11,8 +11,17 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{path::PathBuf, sync::Arc};
-use tokio::{fs, io::AsyncWriteExt};
+use tokio::fs;
 use chrono::Utc;
+use image::GenericImageView;
+
+#[derive(Debug, Deserialize)]
+pub struct CreateLocationRequest {
+    pub name: String,
+    pub latitude: f64,
+    pub longitude: f64,
+    pub description: Option<String>,
+}
 
 pub struct AppState {
     pub db: Database,
@@ -25,86 +34,15 @@ pub struct AppState {
 pub async fn create_location(
     auth: AuthUser,
     State(state): State<Arc<AppState>>,
-    mut multipart: Multipart,
+    Json(payload): Json<CreateLocationRequest>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    tracing::info!("Received location creation request");
-
-    let mut name = None;
-    let mut latitude = None;
-    let mut longitude = None;
-    let mut description = None;
-    let mut photo_files = Vec::new();
-
-    // Parse multipart form data
-    while let Some(field) = multipart.next_field().await.map_err(|e| {
-        tracing::error!("Failed to read multipart field: {}", e);
-        StatusCode::BAD_REQUEST
-    })? {
-        let field_name = field.name().unwrap_or("").to_string();
-        tracing::debug!("Processing field: {}", field_name);
-
-        match field_name.as_str() {
-            "name" => {
-                name = Some(field.text().await.map_err(|_| StatusCode::BAD_REQUEST)?);
-            }
-            "latitude" => {
-                let text = field.text().await.map_err(|e| {
-                    tracing::error!("Failed to read latitude field: {}", e);
-                    StatusCode::BAD_REQUEST
-                })?;
-                latitude = Some(text.parse::<f64>().map_err(|e| {
-                    tracing::error!("Failed to parse latitude '{}': {}", text, e);
-                    StatusCode::BAD_REQUEST
-                })?);
-            }
-            "longitude" => {
-                let text = field.text().await.map_err(|e| {
-                    tracing::error!("Failed to read longitude field: {}", e);
-                    StatusCode::BAD_REQUEST
-                })?;
-                longitude = Some(text.parse::<f64>().map_err(|e| {
-                    tracing::error!("Failed to parse longitude '{}': {}", text, e);
-                    StatusCode::BAD_REQUEST
-                })?);
-            }
-            "description" => {
-                let text = field.text().await.map_err(|_| StatusCode::BAD_REQUEST)?;
-                if !text.is_empty() {
-                    description = Some(text);
-                }
-            }
-            "photos" => {
-                if let Some(filename) = field.file_name() {
-                    let filename = filename.to_string();
-                    let data = field.bytes().await.map_err(|_| StatusCode::BAD_REQUEST)?;
-                    photo_files.push((filename, data));
-                }
-            }
-            _ => {}
-        }
-    }
-
-    // Log what we received
     tracing::info!(
-        "Parsed form data - name: {:?}, lat: {:?}, lng: {:?}, desc: {:?}, photos: {}",
-        name, latitude, longitude, description, photo_files.len()
+        "Creating location: {} at ({}, {}) with max {} sats",
+        payload.name,
+        payload.latitude,
+        payload.longitude,
+        state.max_sats_per_location
     );
-
-    // Validate required fields
-    let name = name.ok_or_else(|| {
-        tracing::error!("Missing required field: name");
-        StatusCode::BAD_REQUEST
-    })?;
-    let latitude = latitude.ok_or_else(|| {
-        tracing::error!("Missing required field: latitude");
-        StatusCode::BAD_REQUEST
-    })?;
-    let longitude = longitude.ok_or_else(|| {
-        tracing::error!("Missing required field: longitude");
-        StatusCode::BAD_REQUEST
-    })?;
-
-    tracing::info!("Creating location: {} at ({}, {}) with max {} sats", name, latitude, longitude, state.max_sats_per_location);
 
     // Generate LNURL secret
     let lnurlw_secret = LightningService::generate_lnurlw_secret();
@@ -112,7 +50,14 @@ pub async fn create_location(
     // Create location in database
     let location = state
         .db
-        .create_location(name, latitude, longitude, description, lnurlw_secret, auth.user_id)
+        .create_location(
+            payload.name,
+            payload.latitude,
+            payload.longitude,
+            payload.description,
+            lnurlw_secret,
+            auth.user_id,
+        )
         .await
         .map_err(|e| {
             tracing::error!("Failed to create location: {}", e);
@@ -149,31 +94,6 @@ pub async fn create_location(
             INITIAL_SATS,
             location.name
         );
-    }
-
-    // Save uploaded photos
-    for (filename, data) in photo_files {
-        let unique_filename = format!("{}_{}", uuid::Uuid::new_v4(), filename);
-        let file_path = state.upload_dir.join(&unique_filename);
-
-        let mut file = fs::File::create(&file_path).await.map_err(|e| {
-            tracing::error!("Failed to create file: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
-
-        file.write_all(&data).await.map_err(|e| {
-            tracing::error!("Failed to write file: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
-
-        state
-            .db
-            .add_photo(&location.id, unique_filename)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to save photo record: {}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?;
     }
 
     Ok(Json(json!({
@@ -831,4 +751,178 @@ pub async fn manual_refill(State(state): State<Arc<AppState>>) -> Result<Json<se
         "pool_before": donation_pool.total_sats,
         "pool_after": new_pool.total_sats
     })))
+}
+
+/// Upload a photo to a location
+pub async fn upload_photo(
+    auth: AuthUser,
+    State(state): State<Arc<AppState>>,
+    Path(location_id): Path<String>,
+    mut multipart: Multipart,
+) -> Result<StatusCode, StatusCode> {
+    tracing::info!("Photo upload request for location {} by user {}", location_id, auth.user_id);
+
+    // Get location and verify ownership
+    let location = state
+        .db
+        .get_location(&location_id)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to get location: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?
+        .ok_or_else(|| {
+            tracing::warn!("Location not found: {}", location_id);
+            StatusCode::NOT_FOUND
+        })?;
+
+    // Check ownership
+    if location.user_id != auth.user_id {
+        tracing::warn!("User {} attempted to upload photo to location {} owned by {}",
+            auth.user_id, location_id, location.user_id);
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    // Check if location is active (cannot modify photos of active locations)
+    if location.is_active() {
+        tracing::warn!("User {} attempted to upload photo to active location {}",
+            auth.user_id, location_id);
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    // Process uploaded photo
+    while let Some(field) = multipart.next_field().await.map_err(|e| {
+        tracing::error!("Failed to read multipart field: {}", e);
+        StatusCode::BAD_REQUEST
+    })? {
+        if field.name() == Some("photo") {
+            let data = field.bytes().await.map_err(|e| {
+                tracing::error!("Failed to read photo data: {}", e);
+                StatusCode::BAD_REQUEST
+            })?;
+
+            // Decode image to validate it's a real image
+            let img = image::load_from_memory(&data).map_err(|e| {
+                tracing::error!("Failed to decode image: {}", e);
+                StatusCode::BAD_REQUEST
+            })?;
+
+            // Resize if larger than 12 megapixels
+            const MAX_PIXELS: u32 = 12_000_000;
+            let (width, height) = img.dimensions();
+            let total_pixels = width as u64 * height as u64;
+
+            let img = if total_pixels > MAX_PIXELS as u64 {
+                let scale = ((MAX_PIXELS as f64) / (total_pixels as f64)).sqrt();
+                let new_width = (width as f64 * scale) as u32;
+                let new_height = (height as f64 * scale) as u32;
+
+                tracing::info!(
+                    "Resizing image from {}x{} to {}x{}",
+                    width, height, new_width, new_height
+                );
+
+                img.resize(new_width, new_height, image::imageops::FilterType::Lanczos3)
+            } else {
+                img
+            };
+
+            // Generate clean UUID filename
+            let filename = format!("{}.jpg", uuid::Uuid::new_v4());
+            let file_path = state.upload_dir.join(&filename);
+
+            // Encode as JPEG and save
+            img.save_with_format(&file_path, image::ImageFormat::Jpeg).map_err(|e| {
+                tracing::error!("Failed to save JPEG: {}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
+
+            state
+                .db
+                .add_photo(&location_id, filename)
+                .await
+                .map_err(|e| {
+                    tracing::error!("Failed to save photo record: {}", e);
+                    StatusCode::INTERNAL_SERVER_ERROR
+                })?;
+
+            tracing::info!("Photo uploaded and converted successfully for location {}", location.name);
+            return Ok(StatusCode::OK);
+        }
+    }
+
+    Err(StatusCode::BAD_REQUEST)
+}
+
+/// Delete a photo
+pub async fn delete_photo(
+    auth: AuthUser,
+    State(state): State<Arc<AppState>>,
+    Path(photo_id): Path<String>,
+) -> Result<StatusCode, StatusCode> {
+    tracing::info!("Photo delete request for photo {} by user {}", photo_id, auth.user_id);
+
+    // Get photo to verify it exists and get location_id
+    let photo = state
+        .db
+        .get_photo(&photo_id)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to get photo: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?
+        .ok_or_else(|| {
+            tracing::warn!("Photo not found: {}", photo_id);
+            StatusCode::NOT_FOUND
+        })?;
+
+    // Get location to verify ownership
+    let location = state
+        .db
+        .get_location(&photo.location_id)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to get location: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?
+        .ok_or_else(|| {
+            tracing::warn!("Location not found: {}", photo.location_id);
+            StatusCode::NOT_FOUND
+        })?;
+
+    // Check ownership
+    if location.user_id != auth.user_id {
+        tracing::warn!("User {} attempted to delete photo from location {} owned by {}",
+            auth.user_id, location.id, location.user_id);
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    // Check if location is active (cannot modify photos of active locations)
+    if location.is_active() {
+        tracing::warn!("User {} attempted to delete photo from active location {}",
+            auth.user_id, location.id);
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    // Delete photo file
+    let file_path = state.upload_dir.join(&photo.file_path);
+    if file_path.exists() {
+        fs::remove_file(&file_path).await.map_err(|e| {
+            tracing::error!("Failed to delete photo file: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+    }
+
+    // Delete photo record
+    state
+        .db
+        .delete_photo(&photo_id)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to delete photo record: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    tracing::info!("Photo {} deleted successfully", photo_id);
+    Ok(StatusCode::NO_CONTENT)
 }

@@ -106,6 +106,8 @@ async fn main() -> Result<()> {
         .route("/profile", get(handlers::profile_page))
         // API routes
         .route("/api/locations", post(handlers::create_location))
+        .route("/api/locations/:location_id/photos", post(handlers::upload_photo))
+        .route("/api/photos/:photo_id", delete(handlers::delete_photo))
         .route("/api/lnurlw/:location_id", get(handlers::lnurlw_endpoint))
         .route(
             "/api/lnurlw/:location_id/callback",
