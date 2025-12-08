@@ -95,25 +95,26 @@ fn navbar(username: Option<&str>) -> Markup {
                     }
 
                     // Right: Login status (desktop)
-                    div class="hidden md:flex md:items-center md:space-x-4" {
+                    div class="hidden md:flex md:items-center md:gap-3" {
                         @if let Some(user) = username {
-                            a href="/profile" class="text-primary hover:text-accent text-sm transition flex items-center gap-1" {
-                                i class="fa-solid fa-user mr-1" {}
+                            a href="/profile" class="flex items-center gap-2 px-3 py-2 rounded-lg bg-tertiary hover:bg-elevated border border-accent-muted text-primary transition text-sm" {
+                                i class="fa-solid fa-user" {}
                                 (user)
                             }
-                            form action="/logout" method="post" class="inline flex items-center" {
+                            form action="/logout" method="post" {
                                 button type="submit"
-                                    class="text-secondary hover:text-accent text-sm transition" {
+                                    class="px-3 py-2 rounded-lg text-muted hover:text-primary hover:bg-tertiary transition text-sm" {
+                                    i class="fa-solid fa-right-from-bracket mr-1" {}
                                     "Logout"
                                 }
                             }
                         } @else {
                             a href="/login"
-                                class="text-primary hover:text-accent text-sm transition" {
+                                class="px-3 py-2 rounded-lg text-primary hover:bg-tertiary transition text-sm" {
                                 "Login"
                             }
                             a href="/register"
-                                class="btn-primary text-sm" {
+                                class="btn-primary btn-sm" {
                                 "Register"
                             }
                         }
@@ -162,13 +163,14 @@ fn navbar(username: Option<&str>) -> Markup {
                     div class="mt-4 pt-4 border-t border-accent-muted" {
                         @if let Some(user) = username {
                             div class="px-3 py-2 space-y-2" {
-                                a href="/profile" class="block py-2 px-3 text-primary rounded hover:bg-tertiary text-center" {
-                                    i class="fa-solid fa-user mr-2" {}
-                                    (user) " - View Profile"
+                                a href="/profile" class="flex items-center justify-center gap-2 py-2 px-3 rounded-lg bg-tertiary hover:bg-elevated border border-accent-muted text-primary transition" {
+                                    i class="fa-solid fa-user" {}
+                                    (user)
                                 }
                                 form action="/logout" method="post" {
                                     button type="submit"
-                                        class="w-full py-2 px-3 text-secondary hover:text-accent text-sm transition rounded hover:bg-tertiary" {
+                                        class="w-full py-2 px-3 rounded-lg text-muted hover:text-primary hover:bg-tertiary transition text-sm" {
+                                        i class="fa-solid fa-right-from-bracket mr-1" {}
                                         "Logout"
                                     }
                                 }
@@ -176,7 +178,7 @@ fn navbar(username: Option<&str>) -> Markup {
                         } @else {
                             div class="flex flex-col space-y-2 px-3 py-2" {
                                 a href="/login"
-                                    class="block py-2 px-3 text-primary rounded hover:bg-tertiary text-center" {
+                                    class="block py-2 px-3 text-primary rounded-lg hover:bg-tertiary text-center transition" {
                                     "Login"
                                 }
                                 a href="/register"
