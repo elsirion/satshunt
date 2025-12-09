@@ -80,7 +80,7 @@ pub fn map(locations: &[Location], max_sats_per_location: i64) -> Markup {
                         .setHTML(`
                             <div style="color: #0f172a; padding: 8px;">
                                 <h3 style="font-weight: bold; margin-bottom: 4px;">${{loc.name}}</h3>
-                                <p style="margin: 4px 0;"><i class="fa-solid fa-bolt"></i> ${{withdrawableSats}} / ${{maxSatsPerLocation}} sats (after fees)</p>
+                                <p style="margin: 4px 0;"><i class="fa-solid fa-bolt"></i> ${{withdrawableSats}} / ${{maxSatsPerLocation}} sats</p>
                                 <a href="/locations/${{loc.id}}" style="color: #3b82f6; text-decoration: underline;">View details</a>
                             </div>
                         `))

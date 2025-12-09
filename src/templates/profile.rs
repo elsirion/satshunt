@@ -103,7 +103,7 @@ fn location_card(location: &Location, max_sats_per_location: i64) -> Markup {
                                 i class="fa-solid fa-bolt" {}
                             }
                             div class="text-muted text-sm" {
-                                "/ " (max_sats_per_location) " sats (after fees)"
+                                "/ " (max_sats_per_location) " sats"
                             }
                         }
 

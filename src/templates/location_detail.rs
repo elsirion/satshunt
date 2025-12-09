@@ -173,7 +173,7 @@ pub fn location_detail(location: &Location, photos: &[Photo], scans: &[Scan], re
                 // Stats grid
                 div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6" {
                     div class="bg-tertiary rounded p-4" {
-                        div class="text-sm text-muted mb-1" { "Available Sats (after fees)" }
+                        div class="text-sm text-muted mb-1" { "Available Sats" }
                         div class="text-2xl font-bold text-highlight" {
                             (withdrawable_sats) " "
                             i class="fa-solid fa-bolt" {}
@@ -383,7 +383,7 @@ pub fn location_detail(location: &Location, photos: &[Photo], scans: &[Scan], re
             new maplibregl.Marker()
                 .setLngLat([{}, {}])
                 .setPopup(new maplibregl.Popup({{ offset: 25 }})
-                    .setHTML('<div style="color: #0f172a; padding: 8px;"><b>{}</b><br>{} sats available (after fees)</div>'))
+                    .setHTML('<div style="color: #0f172a; padding: 8px;"><b>{}</b><br>{} sats available</div>'))
                 .addTo(map)
                 .togglePopup();
         </script>
