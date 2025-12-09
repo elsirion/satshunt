@@ -105,11 +105,12 @@ pub fn donate(pool: &DonationPool) -> Markup {
             div class="space-y-4 text-secondary" {
                 p {
                     "All donations go into a shared pool that automatically refills treasure locations. "
-                    "Each location refills at a rate dependent on the current donation pool balance."
+                    "Each location refills at a rate dependent on the current donation pool balance and its fill status and the maximum sats per location. "
+                    "The formula will change over time to optimize for engagement and runway."
                 }
                 p {
-                    "When treasure hunters scan NFC tags and claim sats, the location balance decreases. "
-                    "The refill system ensures locations stay active and hunters can keep finding treasure!"
+                    "When treasure hunters scan an NFC tag and claim the sats, the location's balance is reset to zero. "
+                    "It will start refilling again after a short delay."
                 }
                 p class="text-highlight font-semibold" {
                     "Your donation keeps the treasure hunt alive for everyone!"
