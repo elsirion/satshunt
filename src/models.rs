@@ -211,3 +211,37 @@ pub struct NfcCard {
     pub programmed_at: Option<DateTime<Utc>>,
     pub last_used_at: Option<DateTime<Utc>>,
 }
+
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+pub struct Refill {
+    pub id: String,
+    pub location_id: String,
+    pub msats_added: i64,
+    pub balance_before_msats: i64,
+    pub balance_after_msats: i64,
+    pub base_rate_msats_per_min: i64,
+    pub slowdown_factor: f64,
+    pub refilled_at: DateTime<Utc>,
+}
+
+impl Refill {
+    /// Get amount added in sats for display (with 3 decimal places for msat precision)
+    pub fn sats_added(&self) -> f64 {
+        self.msats_added as f64 / 1000.0
+    }
+
+    /// Get balance before in sats for display (with 3 decimal places for msat precision)
+    pub fn balance_before_sats(&self) -> f64 {
+        self.balance_before_msats as f64 / 1000.0
+    }
+
+    /// Get balance after in sats for display (with 3 decimal places for msat precision)
+    pub fn balance_after_sats(&self) -> f64 {
+        self.balance_after_msats as f64 / 1000.0
+    }
+
+    /// Get base rate in sats per minute for display (with 3 decimal places for msat precision)
+    pub fn base_rate_sats_per_min(&self) -> f64 {
+        self.base_rate_msats_per_min as f64 / 1000.0
+    }
+}

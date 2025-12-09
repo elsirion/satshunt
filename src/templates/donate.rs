@@ -105,7 +105,7 @@ pub fn donate(pool: &DonationPool) -> Markup {
             div class="space-y-4 text-secondary" {
                 p {
                     "All donations go into a shared pool that automatically refills treasure locations. "
-                    "Each location refills at a rate of 1 sat per minute (60 sats per hour), up to its maximum capacity."
+                    "Each location refills at a rate dependent on the current donation pool balance."
                 }
                 p {
                     "When treasure hunters scan NFC tags and claim sats, the location balance decreases. "

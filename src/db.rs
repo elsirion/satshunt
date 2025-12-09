@@ -454,4 +454,49 @@ impl Database {
             .await
             .map_err(Into::into)
     }
+
+    // Refill operations
+    pub async fn record_refill(
+        &self,
+        location_id: &str,
+        msats_added: i64,
+        balance_before_msats: i64,
+        balance_after_msats: i64,
+        base_rate_msats_per_min: i64,
+        slowdown_factor: f64,
+    ) -> Result<Refill> {
+        let id = Uuid::new_v4().to_string();
+
+        sqlx::query_as::<_, Refill>(
+            r#"
+            INSERT INTO refills (
+                id, location_id, msats_added, balance_before_msats, balance_after_msats,
+                base_rate_msats_per_min, slowdown_factor, refilled_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            RETURNING *
+            "#,
+        )
+        .bind(&id)
+        .bind(location_id)
+        .bind(msats_added)
+        .bind(balance_before_msats)
+        .bind(balance_after_msats)
+        .bind(base_rate_msats_per_min)
+        .bind(slowdown_factor)
+        .bind(Utc::now())
+        .fetch_one(&self.pool)
+        .await
+        .map_err(Into::into)
+    }
+
+    pub async fn get_refills_for_location(&self, location_id: &str) -> Result<Vec<Refill>> {
+        sqlx::query_as::<_, Refill>(
+            "SELECT * FROM refills WHERE location_id = ? ORDER BY refilled_at DESC LIMIT 100"
+        )
+        .bind(location_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(Into::into)
+    }
 }

@@ -1,7 +1,7 @@
-use crate::models::{Location, Photo, Scan};
+use crate::models::{Location, Photo, Refill, Scan};
 use maud::{html, Markup, PreEscaped};
 
-pub fn location_detail(location: &Location, photos: &[Photo], scans: &[Scan], max_sats_per_location: i64, current_user_id: Option<&str>, error: Option<&str>) -> Markup {
+pub fn location_detail(location: &Location, photos: &[Photo], scans: &[Scan], refills: &[Refill], max_sats_per_location: i64, current_user_id: Option<&str>, error: Option<&str>) -> Markup {
     let withdrawable_sats = location.withdrawable_sats();
     let sats_percent = if max_sats_per_location > 0 {
         (withdrawable_sats as f64 / max_sats_per_location as f64 * 100.0) as i32
@@ -291,6 +291,62 @@ pub fn location_detail(location: &Location, photos: &[Photo], scans: &[Scan], ma
                                             }
                                             " "
                                             i class="fa-solid fa-bolt text-highlight" {}
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Refill History
+            @if !refills.is_empty() {
+                div class="bg-secondary rounded-lg p-8 mb-8 border border-accent-muted" {
+                    details {
+                        summary class="text-2xl font-bold text-highlight cursor-pointer select-none hover:text-accent-bright transition-colors" {
+                            i class="fa-solid fa-fill-drip mr-2" {}
+                            "Refill History "
+                            span class="text-base text-muted" { "(" (refills.len()) " refills)" }
+                        }
+
+                        div class="overflow-x-auto mt-4" {
+                            table class="w-full" {
+                                thead {
+                                    tr class="border-b border-accent-muted" {
+                                        th class="text-left py-3 px-4 text-secondary font-semibold" { "Date" }
+                                        th class="text-right py-3 px-4 text-secondary font-semibold" { "Amount Added" }
+                                        th class="text-right py-3 px-4 text-secondary font-semibold" { "Balance Before" }
+                                        th class="text-right py-3 px-4 text-secondary font-semibold" { "Balance After" }
+                                        th class="text-right py-3 px-4 text-secondary font-semibold" { "Base Rate" }
+                                        th class="text-right py-3 px-4 text-secondary font-semibold" { "Slowdown" }
+                                    }
+                                }
+                                tbody {
+                                    @for refill in refills {
+                                        tr class="border-b border-accent-muted hover:bg-tertiary transition-colors" {
+                                            td class="py-3 px-4 text-secondary" {
+                                                (refill.refilled_at.format("%Y-%m-%d %H:%M:%S UTC"))
+                                            }
+                                            td class="py-3 px-4 text-right font-mono" {
+                                                span class="text-green-400 font-semibold" {
+                                                    "+" (format!("{:.3}", refill.sats_added()))
+                                                }
+                                                " "
+                                                i class="fa-solid fa-bolt text-green-400" {}
+                                            }
+                                            td class="py-3 px-4 text-right font-mono text-muted" {
+                                                (format!("{:.3}", refill.balance_before_sats()))
+                                            }
+                                            td class="py-3 px-4 text-right font-mono text-highlight" {
+                                                (format!("{:.3}", refill.balance_after_sats()))
+                                            }
+                                            td class="py-3 px-4 text-right font-mono text-secondary text-sm" {
+                                                (format!("{:.3}", refill.base_rate_sats_per_min())) " sats/min"
+                                            }
+                                            td class="py-3 px-4 text-right font-mono text-secondary text-sm" {
+                                                (format!("{:.3}x", refill.slowdown_factor))
+                                            }
                                         }
                                     }
                                 }

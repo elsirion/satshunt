@@ -21,9 +21,10 @@ pub struct Config {
     #[arg(long, env = "SH_BASE_URL")]
     pub base_url: Option<String>,
 
-    /// Refill rate in sats per hour
-    #[arg(long, env = "SH_REFILL_RATE_SATS_PER_HOUR", default_value = "60")]
-    pub refill_rate_sats_per_hour: i64,
+    /// Percentage of donation pool to distribute per minute (default: 0.016%)
+    /// This is divided equally among all active locations
+    #[arg(long, env = "SH_POOL_PERCENTAGE_PER_MINUTE", default_value = "0.00016")]
+    pub pool_percentage_per_minute: f64,
 
     /// Maximum sats per location (global cap)
     #[arg(long, env = "SH_MAX_SATS_PER_LOCATION", default_value = "1000")]

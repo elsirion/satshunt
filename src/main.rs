@@ -73,7 +73,7 @@ async fn main() -> Result<()> {
     let refill_service = Arc::new(refill::RefillService::new(
         db.clone(),
         refill::RefillConfig {
-            sats_per_hour: config.refill_rate_sats_per_hour,
+            pool_percentage_per_minute: config.pool_percentage_per_minute,
             check_interval_secs: config.refill_check_interval_secs,
             max_sats_per_location: config.max_sats_per_location,
         },
@@ -135,7 +135,7 @@ async fn main() -> Result<()> {
 
     tracing::info!("🚀 SatsHunt server listening on http://{}", addr);
     tracing::info!("📍 Base URL: {}", base_url);
-    tracing::info!("⚙️  Refill rate: {} sats/hour", config.refill_rate_sats_per_hour);
+    tracing::info!("⚙️  Refill formula: {}% of pool per minute divided by active locations", config.pool_percentage_per_minute * 100.0);
     tracing::info!("⚙️  Max sats per location: {}", config.max_sats_per_location);
 
     axum::serve(listener, app).await?;

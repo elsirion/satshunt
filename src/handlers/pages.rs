@@ -116,6 +116,11 @@ pub async fn location_detail_page(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
+    let refills = state.db.get_refills_for_location(&id).await.map_err(|e| {
+        tracing::error!("Failed to get refills: {}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
     let current_user_id = opt_auth.user_id.as_deref();
     let username = match current_user_id {
         Some(user_id) => state
@@ -128,7 +133,7 @@ pub async fn location_detail_page(
         None => None,
     };
 
-    let content = templates::location_detail(&location, &photos, &scans, state.max_sats_per_location, current_user_id, params.error.as_deref());
+    let content = templates::location_detail(&location, &photos, &scans, &refills, state.max_sats_per_location, current_user_id, params.error.as_deref());
     let page = templates::base_with_user(&location.name, content, username.as_deref());
 
     Ok(Html(page.into_string()))
