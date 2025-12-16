@@ -26,6 +26,30 @@
             pkgs.stdenv.buildPlatform.config;
 
         rocksdb = pkgs.rocksdb_8_11.override { enableLiburing = false; };
+
+        rustAnalyzerMcp = pkgs.rustPlatform.buildRustPackage rec {
+          pname = "rust-analyzer-mcp";
+          version = "0.2.0";
+
+          src = pkgs.fetchFromGitHub {
+            owner = "zeenix";
+            repo = "rust-analyzer-mcp";
+            rev = "v${version}";
+            hash = "sha256-brnzVDPBB3sfM+5wDw74WGqN5ahtuV4OvaGhnQfDqM0=";
+          };
+
+          cargoHash = "sha256-7t4bjyCcbxFAO/29re7cjoW1ACieeEaM4+QT5QAwc34=";
+
+          nativeBuildInputs = with pkgs; [ pkg-config ];
+          buildInputs = with pkgs; [ openssl ];
+
+          doCheck = false;
+
+          meta = {
+            description = "MCP server for rust-analyzer integration";
+            homepage = "https://github.com/zeenix/rust-analyzer-mcp";
+          };
+        };
       in
       {
         packages.default = pkgs.rustPlatform.buildRustPackage {
@@ -77,6 +101,7 @@
             clang
             llvmPackages.libclang
             llvmPackages.libcxxClang
+            rustAnalyzerMcp
           ];
 
           LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
