@@ -311,7 +311,7 @@ pub fn location_detail(location: &Location, photos: &[Photo], scans: &[Scan], re
                         }
 
                         div class="overflow-x-auto mt-4" {
-                            table class="w-full" {
+                            table id="refillsTable" class="w-full" {
                                 thead {
                                     tr class="border-b border-accent-muted" {
                                         th class="text-left py-3 px-4 text-secondary font-semibold" { "Date" }
@@ -322,9 +322,9 @@ pub fn location_detail(location: &Location, photos: &[Photo], scans: &[Scan], re
                                         th class="text-right py-3 px-4 text-secondary font-semibold" { "Slowdown" }
                                     }
                                 }
-                                tbody {
-                                    @for refill in refills {
-                                        tr class="border-b border-accent-muted hover:bg-tertiary transition-colors" {
+                                tbody id="refillsTableBody" {
+                                    @for (index, refill) in refills.iter().enumerate() {
+                                        tr class="border-b border-accent-muted hover:bg-tertiary transition-colors refill-row" data-index=(index) {
                                             td class="py-3 px-4 text-secondary" {
                                                 (refill.refilled_at.format("%Y-%m-%d %H:%M:%S UTC"))
                                             }
@@ -352,7 +352,70 @@ pub fn location_detail(location: &Location, photos: &[Photo], scans: &[Scan], re
                                 }
                             }
                         }
+
+                        // Pagination controls
+                        @if refills.len() > 20 {
+                            div id="refillsPagination" class="flex items-center justify-center gap-2 mt-6" {
+                                button id="refillsPrevBtn"
+                                    class="px-4 py-2 bg-tertiary hover:bg-accent-hover text-secondary rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                    onclick="changeRefillsPage(-1)" {
+                                    i class="fa-solid fa-chevron-left mr-2" {}
+                                    "Previous"
+                                }
+                                div id="refillsPageInfo" class="px-4 py-2 text-secondary font-semibold" {}
+                                button id="refillsNextBtn"
+                                    class="px-4 py-2 bg-tertiary hover:bg-accent-hover text-secondary rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                    onclick="changeRefillsPage(1)" {
+                                    "Next"
+                                    i class="fa-solid fa-chevron-right ml-2" {}
+                                }
+                            }
+                        }
                     }
+                }
+
+                // Refills pagination script
+                @if refills.len() > 20 {
+                    (PreEscaped(format!(r#"
+                    <script>
+                        let refillsCurrentPage = 1;
+                        const refillsPerPage = 20;
+                        const refillsTotalItems = {};
+
+                        function updateRefillsTable() {{
+                            const rows = document.querySelectorAll('.refill-row');
+                            const startIndex = (refillsCurrentPage - 1) * refillsPerPage;
+                            const endIndex = startIndex + refillsPerPage;
+
+                            rows.forEach((row, index) => {{
+                                if (index >= startIndex && index < endIndex) {{
+                                    row.style.display = '';
+                                }} else {{
+                                    row.style.display = 'none';
+                                }}
+                            }});
+
+                            // Update pagination controls
+                            const totalPages = Math.ceil(refillsTotalItems / refillsPerPage);
+                            document.getElementById('refillsPageInfo').textContent = `Page ${{refillsCurrentPage}} of ${{totalPages}}`;
+                            document.getElementById('refillsPrevBtn').disabled = refillsCurrentPage === 1;
+                            document.getElementById('refillsNextBtn').disabled = refillsCurrentPage === totalPages;
+                        }}
+
+                        function changeRefillsPage(delta) {{
+                            const totalPages = Math.ceil(refillsTotalItems / refillsPerPage);
+                            const newPage = refillsCurrentPage + delta;
+
+                            if (newPage >= 1 && newPage <= totalPages) {{
+                                refillsCurrentPage = newPage;
+                                updateRefillsTable();
+                            }}
+                        }}
+
+                        // Initialize on page load
+                        updateRefillsTable();
+                    </script>
+                    "#, refills.len())))
                 }
             }
 
