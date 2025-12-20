@@ -13,95 +13,95 @@ pub fn nfc_setup(location: &Location, write_token: &str, base_url: &str) -> Mark
 
     html! {
         div class="max-w-2xl mx-auto" {
-            div class="bg-secondary rounded-lg p-8 border border-accent-muted" {
-                h1 class="text-4xl font-bold mb-6 text-highlight" {
+            div class="card-brutal" {
+                h1 class="text-4xl font-black mb-6 text-primary" style="letter-spacing: -0.02em;" {
                     i class="fa-solid fa-tag mr-2" {}
-                    "NFC Sticker Setup"
+                    "NFC STICKER SETUP"
                 }
 
-                div class="bg-success border border-success text-primary px-4 py-3 rounded-lg mb-6" {
-                    p class="font-semibold" {
+                div class="alert-brutal mb-6" {
+                    p class="font-bold" {
                         i class="fa-solid fa-check mr-2" {}
-                        "Location created successfully!"
+                        "LOCATION CREATED SUCCESSFULLY!"
                     }
                 }
 
-                p class="text-secondary mb-6" {
-                    "Your location \"" (location.name) "\" has been created. Now you need to write the LNURL-withdraw link to an NFC sticker."
+                p class="text-secondary mb-6 font-bold" {
+                    "YOUR LOCATION \"" (location.name) "\" HAS BEEN CREATED. NOW YOU NEED TO WRITE THE LNURL-WITHDRAW LINK TO AN NFC STICKER."
                 }
 
                 // Instructions
-                div class="bg-tertiary rounded-lg p-6 mb-6" {
-                    h2 class="text-xl font-bold mb-4 text-highlight" { "Setup Instructions" }
+                div class="card-brutal-inset mb-6" {
+                    h2 class="heading-breaker" { "SETUP INSTRUCTIONS" }
 
-                    div class="mb-4" {
-                        h3 class="text-lg font-semibold mb-2 text-highlight" {
+                    div class="mb-4 mt-8" {
+                        h3 class="text-base font-black mb-3 text-primary" {
                             i class="fa-solid fa-mobile-screen mr-2" {}
-                            "Method 1: Boltcard NFC Programmer (Recommended)"
+                            "METHOD 1: BOLTCARD NFC PROGRAMMER (RECOMMENDED)"
                         }
-                        ol class="list-decimal list-inside space-y-3 text-secondary ml-4" {
-                            li { "Install the Boltcard NFC Programmer app on your phone" }
-                            li { "Click the \"Setup Boltcard\" button below" }
-                            li { "Tap your NFC sticker to your phone when prompted" }
-                            li { "Place the NFC sticker at the location: " em { (location.name) } }
+                        ol class="list-decimal list-inside space-y-3 text-secondary ml-4 font-bold text-sm" {
+                            li { "INSTALL THE BOLTCARD NFC PROGRAMMER APP ON YOUR PHONE" }
+                            li { "CLICK THE \"SETUP BOLTCARD\" BUTTON BELOW" }
+                            li { "TAP YOUR NFC STICKER TO YOUR PHONE WHEN PROMPTED" }
+                            li { "PLACE THE NFC STICKER AT THE LOCATION: " span class="mono" { (location.name) } }
                         }
                     }
 
                     div {
-                        h3 class="text-lg font-semibold mb-2 text-highlight" {
+                        h3 class="text-base font-black mb-3 text-primary" {
                             i class="fa-solid fa-qrcode mr-2" {}
-                            "Method 2: Manual LNURL-w Setup"
+                            "METHOD 2: MANUAL LNURL-W SETUP"
                         }
-                        ol class="list-decimal list-inside space-y-3 text-secondary ml-4" {
-                            li { "Scan the QR code below with your NFC writing app (like LNbits NFC)" }
-                            li { "Follow the app's instructions to write the LNURL to your NFC sticker" }
-                            li { "Place the NFC sticker at the location: " em { (location.name) } }
+                        ol class="list-decimal list-inside space-y-3 text-secondary ml-4 font-bold text-sm" {
+                            li { "SCAN THE QR CODE BELOW WITH YOUR NFC WRITING APP (LIKE LNBITS NFC)" }
+                            li { "FOLLOW THE APP'S INSTRUCTIONS TO WRITE THE LNURL TO YOUR NFC STICKER" }
+                            li { "PLACE THE NFC STICKER AT THE LOCATION: " span class="mono" { (location.name) } }
                         }
-                        p class="text-sm text-muted mt-2" {
+                        p class="text-xs text-muted mt-2 font-bold mono" {
                             i class="fa-solid fa-info-circle mr-1" {}
-                            "Note: This method is simpler but doesn't support advanced features like counter-based security"
+                            "NOTE: THIS METHOD IS SIMPLER BUT DOESN'T SUPPORT ADVANCED FEATURES LIKE COUNTER-BASED SECURITY"
                         }
                     }
                 }
 
                 // Boltcard Deep Links section
-                div class="bg-white rounded-lg p-8 mb-6" {
-                    h3 class="text-inverse font-bold mb-4 text-center" {
+                div class="card-brutal mb-6" style="background-color: #ffffff; color: #000000;" {
+                    h3 class="font-black mb-4 text-center text-lg" style="color: #000000;" {
                         i class="fa-solid fa-mobile-screen mr-2" {}
-                        "Boltcard NFC Programmer"
+                        "BOLTCARD NFC PROGRAMMER"
                     }
 
                     div class="flex gap-4 mb-4 justify-center" {
                         a href=(boltcard_program_link)
-                            class="flex-1 max-w-xs px-6 py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-center font-semibold transition-colors" {
+                            class="flex-1 max-w-xs btn-brutal-fill text-center" {
                             i class="fa-solid fa-plus mr-2" {}
-                            "Setup Boltcard"
+                            "SETUP BOLTCARD"
                         }
                         a href=(boltcard_reset_link)
-                            class="flex-1 max-w-xs px-6 py-4 bg-orange-600 hover:bg-orange-700 text-white rounded-lg text-center font-semibold transition-colors" {
+                            class="flex-1 max-w-xs btn-brutal-orange text-center" {
                             i class="fa-solid fa-rotate-right mr-2" {}
-                            "Reset Boltcard"
+                            "RESET BOLTCARD"
                         }
                     }
 
-                    p class="text-sm text-center text-gray-600" {
-                        "Tap a button to open the Boltcard NFC Programmer app"
+                    p class="text-xs text-center font-bold mono" style="color: #000000;" {
+                        "TAP A BUTTON TO OPEN THE BOLTCARD NFC PROGRAMMER APP"
                     }
                 }
 
                 // QR Code section (fallback method)
-                details class="bg-white rounded-lg p-8 mb-6" id="qr-details" {
-                    summary class="cursor-pointer text-inverse hover:text-gray-700 font-bold text-center" {
+                details class="card-brutal mb-6" id="qr-details" style="background-color: #ffffff; color: #000000;" {
+                    summary class="cursor-pointer hover:opacity-70 font-black text-center" style="color: #000000;" {
                         i class="fa-solid fa-qrcode mr-2" {}
-                        "Show QR Code (Manual Method)"
+                        "SHOW QR CODE (MANUAL METHOD)"
                     }
                     div class="mt-4 text-center" {
                         div id="qrcode" class="mx-auto mb-4 flex justify-center" {}
-                        p class="text-gray-600 text-sm mb-2" { "Scan with Boltcard NFC Programmer app" }
+                        p class="text-xs mb-2 font-bold mono" style="color: #000000;" { "SCAN WITH BOLTCARD NFC PROGRAMMER APP" }
 
                         div class="mt-4" {
-                            p class="text-sm font-semibold text-gray-700 mb-2" { "Keys Request URL (for manual entry):" }
-                            div class="p-3 bg-gray-100 rounded text-xs font-mono break-all text-gray-800" {
+                            p class="text-xs font-black mb-2" style="color: #000000;" { "KEYS REQUEST URL (FOR MANUAL ENTRY):" }
+                            div class="p-3 text-xs mono break-all" style="background-color: #f0f0f0; color: #000000; border: 2px solid #000000;" {
                                 (keys_request_url)
                             }
                         }
@@ -109,28 +109,28 @@ pub fn nfc_setup(location: &Location, write_token: &str, base_url: &str) -> Mark
                 }
 
                 // Warning
-                div class="bg-warning border border-warning text-primary px-4 py-3 rounded-lg mb-6" {
-                    p class="font-semibold mb-2" {
+                div class="alert-brutal orange mb-6" {
+                    p class="font-bold mb-2" {
                         i class="fa-solid fa-triangle-exclamation mr-2" {}
-                        "Important"
+                        "IMPORTANT"
                     }
-                    ul class="list-disc list-inside text-sm space-y-1" {
-                        li { "You can retry programming if the NFC write fails" }
-                        li { "The same keys will be used for retries until the location is activated" }
-                        li { "This link becomes invalid after the first successful scan of the NFC sticker" }
-                        li { "Make sure to test the NFC sticker before leaving the location" }
+                    ul class="list-disc list-inside text-xs space-y-1 font-bold" {
+                        li { "YOU CAN RETRY PROGRAMMING IF THE NFC WRITE FAILS" }
+                        li { "THE SAME KEYS WILL BE USED FOR RETRIES UNTIL THE LOCATION IS ACTIVATED" }
+                        li { "THIS LINK BECOMES INVALID AFTER THE FIRST SUCCESSFUL SCAN OF THE NFC STICKER" }
+                        li { "MAKE SURE TO TEST THE NFC STICKER BEFORE LEAVING THE LOCATION" }
                     }
                 }
 
                 // Actions
                 div class="flex gap-4" {
                     a href={"/locations/" (location.id)}
-                        class="flex-1 px-6 py-3 btn-secondary text-center" {
-                        "View Location"
+                        class="flex-1 btn-brutal text-center" {
+                        "VIEW LOCATION"
                     }
                     a href="/map"
-                        class="flex-1 px-6 py-3 btn-primary text-center" {
-                        "Back to Map"
+                        class="flex-1 btn-brutal-fill text-center" {
+                        "BACK TO MAP"
                     }
                 }
             }

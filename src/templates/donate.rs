@@ -3,63 +3,65 @@ use maud::{html, Markup, PreEscaped};
 
 pub fn donate(pool: &DonationPool) -> Markup {
     html! {
-        h1 class="text-4xl font-bold mb-8 text-highlight" {
+        h1 class="text-4xl font-black mb-8 text-primary" style="letter-spacing: -0.02em;" {
             i class="fa-solid fa-coins mr-2" {}
-            "Donate to the Pool"
+            "DONATE TO THE POOL"
         }
 
         // Current pool stats
-        div class="bg-secondary rounded-lg p-8 mb-8 border border-accent-muted" {
-            h2 class="text-2xl font-bold mb-4 text-highlight" { "Current Donation Pool" }
-            div class="text-center" {
-                div class="text-6xl font-bold text-highlight mb-2" {
-                    (pool.total_sats()) " "
-                    i class="fa-solid fa-bolt" {}
+        div class="card-brutal-inset mb-8" {
+            h2 class="heading-breaker orange" { "CURRENT DONATION POOL" }
+            div class="text-center mt-8" {
+                div class="stat-brutal" {
+                    div class="stat-value orange" {
+                        (pool.total_sats()) " "
+                        i class="fa-solid fa-bolt" {}
+                    }
+                    div class="stat-label" { "TOTAL SATS AVAILABLE FOR REFILLS" }
                 }
-                p class="text-muted" { "Total sats available for refills" }
             }
         }
 
         // Why donate section
-        div class="bg-secondary rounded-lg p-8 mb-8 border border-accent-muted" {
-            h2 class="text-2xl font-bold mb-4 text-highlight" { "Why Donate?" }
-            ul class="space-y-3 text-secondary" {
+        div class="card-brutal-inset mb-8" {
+            h2 class="heading-breaker orange" { "WHY DONATE?" }
+            ul class="space-y-3 text-secondary mt-8" {
                 li class="flex items-start" {
-                    span class="text-highlight mr-2" {
+                    span class="text-highlight orange mr-2" {
                         i class="fa-solid fa-bolt" {}
                     }
-                    "Keeps treasure locations refilling automatically"
+                    span class="font-bold" { "KEEPS TREASURE LOCATIONS REFILLING AUTOMATICALLY" }
                 }
                 li class="flex items-start" {
-                    span class="text-highlight mr-2" {
+                    span class="text-highlight orange mr-2" {
                         i class="fa-solid fa-bolt" {}
                     }
-                    "Enables new treasure hunters to find sats"
+                    span class="font-bold" { "ENABLES NEW TREASURE HUNTERS TO FIND SATS" }
                 }
                 li class="flex items-start" {
-                    span class="text-highlight mr-2" {
+                    span class="text-highlight orange mr-2" {
                         i class="fa-solid fa-bolt" {}
                     }
-                    "Supports the community treasure hunt game"
+                    span class="font-bold" { "SUPPORTS THE COMMUNITY TREASURE HUNT GAME" }
                 }
                 li class="flex items-start" {
-                    span class="text-highlight mr-2" {
+                    span class="text-highlight orange mr-2" {
                         i class="fa-solid fa-bolt" {}
                     }
-                    "Locations refill at 1 sat per minute from this pool"
+                    span class="font-bold" { "LOCATIONS REFILL BASED ON POOL BALANCE AND FILL STATUS" }
                 }
             }
         }
 
         // Donation form
-        div class="bg-secondary rounded-lg p-8 border border-accent-muted" {
-            h2 class="text-2xl font-bold mb-6 text-highlight" { "Make a Donation" }
+        div class="card-brutal-inset" {
+            h2 class="heading-breaker orange" { "MAKE A DONATION" }
 
-            div id="donationContainer" {
+            div id="donationContainer" class="mt-8" {
                 // Amount selection
                 div id="amountSelection" {
-                    label class="block mb-4 text-sm font-medium text-primary" {
-                        "Choose donation amount:"
+                    label class="label-brutal mb-4 block" {
+                        "CHOOSE DONATION AMOUNT"
                     }
                     div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4" {
                         (amount_button("1000", "1K sats"))
@@ -76,16 +78,16 @@ pub fn donate(pool: &DonationPool) -> Markup {
 
                     // Custom amount
                     div id="customAmountDiv" class="hidden mt-4" {
-                        label for="customAmount" class="block mb-2 text-sm font-medium text-primary" {
-                            "Custom Amount (sats)"
+                        label for="customAmount" class="label-brutal mb-2 block" {
+                            "CUSTOM AMOUNT (SATS)"
                         }
                         div class="flex gap-2" {
                             input type="number" id="customAmount" min="1" step="1"
-                                class="flex-1 bg-tertiary border border-accent-muted text-primary text-sm rounded-lg focus:ring-accent focus:border-accent p-2.5"
-                                placeholder="Enter amount in satoshis";
+                                class="flex-1 input-brutal-box"
+                                placeholder="ENTER AMOUNT IN SATOSHIS";
                             button type="button" id="customSubmit"
-                                class="px-4 py-2 btn-primary" {
-                                "Create Invoice"
+                                class="btn-brutal-orange" {
+                                "CREATE INVOICE"
                             }
                         }
                     }
@@ -100,20 +102,20 @@ pub fn donate(pool: &DonationPool) -> Markup {
         }
 
         // How it works
-        div class="bg-secondary rounded-lg p-8 mt-8 border border-accent-muted" {
-            h2 class="text-2xl font-bold mb-4 text-highlight" { "How Donations Work" }
+        div class="card-bar mt-8" {
+            h2 class="text-2xl font-black mb-6" { "HOW DONATIONS WORK" }
             div class="space-y-4 text-secondary" {
-                p {
-                    "All donations go into a shared pool that automatically refills treasure locations. "
-                    "Each location refills at a rate dependent on the current donation pool balance and its fill status and the maximum sats per location. "
-                    "The formula will change over time to optimize for engagement and runway."
+                p class="font-bold" {
+                    "ALL DONATIONS GO INTO A SHARED POOL THAT AUTOMATICALLY REFILLS TREASURE LOCATIONS. "
+                    "EACH LOCATION REFILLS AT A RATE DEPENDENT ON THE CURRENT DONATION POOL BALANCE AND ITS FILL STATUS AND THE MAXIMUM SATS PER LOCATION. "
+                    "THE FORMULA WILL CHANGE OVER TIME TO OPTIMIZE FOR ENGAGEMENT AND RUNWAY."
                 }
-                p {
-                    "When treasure hunters scan an NFC tag and claim the sats, the location's balance is reset to zero. "
-                    "It will start refilling again after a short delay."
+                p class="font-bold" {
+                    "WHEN TREASURE HUNTERS SCAN AN NFC TAG AND CLAIM THE SATS, THE LOCATION'S BALANCE IS RESET TO ZERO. "
+                    "IT WILL START REFILLING AGAIN AFTER A SHORT DELAY."
                 }
-                p class="text-highlight font-semibold" {
-                    "Your donation keeps the treasure hunt alive for everyone!"
+                p class="text-highlight orange font-black text-lg" {
+                    "YOUR DONATION KEEPS THE TREASURE HUNT ALIVE FOR EVERYONE!"
                 }
             }
         }
@@ -234,8 +236,8 @@ pub fn donate(pool: &DonationPool) -> Markup {
 fn amount_button(amount: &str, label: &str) -> Markup {
     html! {
         button type="button" data-amount=(amount)
-            class="amount-btn px-4 py-3 bg-tertiary hover:bg-elevated text-primary font-semibold rounded-lg border border-accent-muted transition" {
-            (label)
+            class="amount-btn btn-brutal font-black" {
+            (label.to_uppercase())
         }
     }
 }

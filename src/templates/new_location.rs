@@ -2,50 +2,50 @@ use maud::{html, Markup, PreEscaped};
 
 pub fn new_location() -> Markup {
     html! {
-        h1 class="text-4xl font-bold mb-8 text-highlight" {
+        h1 class="text-4xl font-black mb-8 text-primary" style="letter-spacing: -0.02em;" {
             i class="fa-solid fa-plus mr-2" {}
-            "Add New Location"
+            "ADD NEW LOCATION"
         }
 
         form id="locationForm" action="/api/locations" method="post"
-            class="bg-secondary rounded-lg p-8 border border-accent-muted space-y-6" {
+            class="card-brutal-inset space-y-6" {
 
             // Name field
             div {
-                label for="name" class="block mb-2 text-sm font-medium text-primary" {
-                    "Location Name"
+                label for="name" class="label-brutal" {
+                    "LOCATION NAME"
                 }
                 input type="text" id="name" name="name" required
-                    class="bg-tertiary border border-accent-muted text-primary text-sm rounded-lg focus:ring-accent focus:border-accent block w-full p-2.5"
-                    placeholder="Treasure Rock in Central Park";
+                    class="input-brutal-box w-full"
+                    placeholder="TREASURE ROCK IN CENTRAL PARK";
             }
 
             // Description
             div {
-                label for="description" class="block mb-2 text-sm font-medium text-primary" {
-                    "Description (optional)"
+                label for="description" class="label-brutal" {
+                    "DESCRIPTION (OPTIONAL)"
                 }
                 textarea id="description" name="description" rows="3"
-                    class="bg-tertiary border border-accent-muted text-primary text-sm rounded-lg focus:ring-accent focus:border-accent block w-full p-2.5"
-                    placeholder="Behind the large oak tree near the fountain..." {}
+                    class="input-brutal-box w-full"
+                    placeholder="BEHIND THE LARGE OAK TREE NEAR THE FOUNTAIN..." {}
             }
 
             // Coordinates
             div class="grid md:grid-cols-2 gap-4" {
                 div {
-                    label for="latitude" class="block mb-2 text-sm font-medium text-primary" {
-                        "Latitude"
+                    label for="latitude" class="label-brutal" {
+                        "LATITUDE"
                     }
                     input type="number" id="latitude" name="latitude" required step="any" value="37.7749"
-                        class="bg-tertiary border border-accent-muted text-primary text-sm rounded-lg focus:ring-accent focus:border-accent block w-full p-2.5"
+                        class="input-brutal-box w-full"
                         placeholder="37.7749";
                 }
                 div {
-                    label for="longitude" class="block mb-2 text-sm font-medium text-primary" {
-                        "Longitude"
+                    label for="longitude" class="label-brutal" {
+                        "LONGITUDE"
                     }
                     input type="number" id="longitude" name="longitude" required step="any" value="-122.4194"
-                        class="bg-tertiary border border-accent-muted text-primary text-sm rounded-lg focus:ring-accent focus:border-accent block w-full p-2.5"
+                        class="input-brutal-box w-full"
                         placeholder="-122.4194";
                 }
             }
@@ -53,25 +53,25 @@ pub fn new_location() -> Markup {
             // GPS button
             div {
                 button type="button" id="useGps"
-                    class="w-full px-4 py-2 btn-secondary" {
+                    class="w-full btn-brutal" {
                     i class="fa-solid fa-location-crosshairs mr-2" {}
-                    "Use My Current Location"
+                    "USE MY CURRENT LOCATION"
                 }
             }
 
             // Map preview
             div {
-                label class="block mb-2 text-sm font-medium text-primary" {
-                    "Location Preview"
+                label class="label-brutal mb-2 block" {
+                    "LOCATION PREVIEW"
                 }
-                div id="previewMap" class="w-full h-64 rounded-lg border border-accent-muted" {}
+                div id="previewMap" class="w-full h-64" style="border: 3px solid var(--accent-border);" {}
             }
 
             // Submit button
             div {
                 button type="submit"
-                    class="w-full btn-primary" {
-                    "Create Location"
+                    class="w-full btn-brutal-fill" {
+                    "CREATE LOCATION"
                 }
             }
         }

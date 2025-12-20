@@ -3,34 +3,36 @@ use maud::{html, Markup, PreEscaped};
 
 pub fn map(locations: &[Location], max_sats_per_location: i64) -> Markup {
     html! {
-        h1 class="text-4xl font-bold mb-8 text-highlight" {
+        h1 class="text-4xl font-black mb-8 text-primary" style="letter-spacing: -0.02em;" {
             i class="fa-solid fa-map mr-2" {}
-            "Treasure Map"
+            "TREASURE MAP"
         }
 
-        div class="bg-secondary rounded-lg p-4 mb-8 border border-accent-muted" {
-            p class="text-secondary" {
-                "Explore locations around you. Green markers have more sats available, red markers are nearly empty."
+        div class="alert-brutal mb-8" {
+            p class="text-sm font-bold" {
+                "EXPLORE LOCATIONS AROUND YOU. GREEN MARKERS HAVE MORE SATS AVAILABLE, RED MARKERS ARE NEARLY EMPTY."
             }
         }
 
         // Map container
-        div id="map" class="w-full h-96 rounded-lg border border-accent-muted mb-8" {}
+        div id="map" class="w-full h-96 mb-8" style="border: 3px solid var(--accent-border);" {}
 
         // Locations list
-        div class="bg-secondary rounded-lg p-6 border border-accent-muted" {
-            h2 class="text-2xl font-bold mb-4 text-highlight" { "All Locations" }
+        div class="card-brutal-inset" {
+            h2 class="heading-breaker" { "ALL LOCATIONS" }
             div class="grid gap-4" {
                 @for location in locations {
                     (location_card(location, max_sats_per_location))
                 }
                 @if locations.is_empty() {
-                    p class="text-muted text-center py-8" {
-                        "No locations yet. Be the first to "
-                        a href="/locations/new" class="text-highlight hover:bg-accent-hover" {
-                            "add one"
+                    div class="text-center py-8" {
+                        p class="text-muted font-bold mb-4" {
+                            "NO LOCATIONS YET. BE THE FIRST TO "
+                            a href="/locations/new" class="text-highlight orange" {
+                                "ADD ONE"
+                            }
+                            "!"
                         }
-                        "!"
                     }
                 }
             }
@@ -108,35 +110,34 @@ fn location_card(location: &Location, max_sats_per_location: i64) -> Markup {
         0
     };
 
-    let color_class = if sats_percent > 50 {
-        "text-success"
-    } else if sats_percent > 20 {
-        "text-warning"
-    } else {
-        "text-error"
-    };
-
     html! {
         a href={"/locations/" (location.id)}
-            class="block p-4 bg-tertiary hover:bg-elevated rounded-lg transition border border-accent-muted" {
-            div class="flex justify-between items-start" {
-                div {
-                    h3 class="text-xl font-semibold text-highlight mb-2" { (location.name) }
+            class="block card-brutal transition hover:bg-elevated" {
+            div class="flex justify-between items-start gap-4" {
+                div class="flex-1" {
+                    h3 class="text-xl font-black text-primary mb-2" { (location.name) }
                     @if let Some(desc) = &location.description {
-                        p class="text-secondary text-sm mb-2" { (desc) }
+                        p class="text-secondary text-sm mb-2 font-bold" { (desc) }
                     }
-                    p class="text-muted text-sm" {
+                    p class="text-muted text-sm mono" {
                         i class="fa-solid fa-location-dot mr-1" {}
                         (format!("{:.4}, {:.4}", location.latitude, location.longitude))
                     }
                 }
                 div class="text-right" {
-                    div class=(format!("text-2xl font-bold {}", color_class)) {
-                        (withdrawable_sats) " "
-                        i class="fa-solid fa-bolt" {}
+                    @if sats_percent > 50 {
+                        div class="text-2xl font-black text-primary" {
+                            (withdrawable_sats) " "
+                            i class="fa-solid fa-bolt" {}
+                        }
+                    } @else {
+                        div class="text-2xl font-black text-highlight orange" {
+                            (withdrawable_sats) " "
+                            i class="fa-solid fa-bolt" {}
+                        }
                     }
-                    div class="text-muted text-sm" {
-                        "/ " (max_sats_per_location) " sats"
+                    div class="text-muted text-sm mono" {
+                        "/ " (max_sats_per_location) " SATS"
                     }
                 }
             }
