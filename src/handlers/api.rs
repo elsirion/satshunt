@@ -720,10 +720,11 @@ pub async fn manual_refill(State(state): State<Arc<AppState>>) -> Result<Json<se
     );
 
     for location in locations {
-        // Calculate how much time has passed since last refill in minutes
-        let minutes_since_refill = (now - location.last_refill_at).num_minutes();
+        // Calculate how much time has passed since last activity (refill or withdraw)
+        // We use the smaller delta (more recent activity) to avoid gaming
+        let minutes_since_activity = (now - location.last_activity_at()).num_minutes();
 
-        if minutes_since_refill < 1 {
+        if minutes_since_activity < 1 {
             continue; // Not time to refill yet
         }
 
@@ -734,7 +735,7 @@ pub async fn manual_refill(State(state): State<Arc<AppState>>) -> Result<Json<se
         let adjusted_rate_msats = (base_msats_per_location_per_minute as f64 * slowdown_factor).round() as i64;
 
         // Calculate refill amount based on minutes elapsed and adjusted rate
-        let refill_amount_msats = minutes_since_refill * adjusted_rate_msats;
+        let refill_amount_msats = minutes_since_activity * adjusted_rate_msats;
         let new_balance_msats = (location.current_msats + refill_amount_msats).min(max_msats);
         let actual_refill_msats = new_balance_msats - location.current_msats;
 

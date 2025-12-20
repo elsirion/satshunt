@@ -309,6 +309,14 @@ impl Database {
     // Scan operations
     pub async fn record_scan(&self, location_id: &str, msats_withdrawn: i64) -> Result<Scan> {
         let id = Uuid::new_v4().to_string();
+        let now = Utc::now();
+
+        // Update last_withdraw_at on the location
+        sqlx::query("UPDATE locations SET last_withdraw_at = ? WHERE id = ?")
+            .bind(now)
+            .bind(location_id)
+            .execute(&self.pool)
+            .await?;
 
         sqlx::query_as::<_, Scan>(
             "INSERT INTO scans (id, location_id, msats_withdrawn, scanned_at) VALUES (?, ?, ?, ?) RETURNING *"
@@ -316,7 +324,7 @@ impl Database {
         .bind(&id)
         .bind(location_id)
         .bind(msats_withdrawn)
-        .bind(Utc::now())
+        .bind(now)
         .fetch_one(&self.pool)
         .await
         .map_err(Into::into)

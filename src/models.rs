@@ -86,6 +86,7 @@ pub struct Location {
     pub current_msats: i64,
     pub lnurlw_secret: String,
     pub last_refill_at: DateTime<Utc>,
+    pub last_withdraw_at: Option<DateTime<Utc>>,
     pub write_token: Option<String>,
     pub write_token_used: bool,
     pub write_token_created_at: Option<DateTime<Utc>>,
@@ -104,6 +105,14 @@ impl Location {
 
     pub fn is_active(&self) -> bool {
         self.status == "active"
+    }
+
+    /// Get the most recent activity time (max of last_refill_at and last_withdraw_at).
+    /// Used for calculating refill delta - we use the smaller delta (more recent activity).
+    pub fn last_activity_at(&self) -> DateTime<Utc> {
+        self.last_withdraw_at
+            .map(|withdraw_at| self.last_refill_at.max(withdraw_at))
+            .unwrap_or(self.last_refill_at)
     }
 
     /// Convert msats to sats for display purposes
