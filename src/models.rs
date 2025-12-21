@@ -254,3 +254,248 @@ impl Refill {
         self.base_rate_msats_per_min as f64 / 1000.0
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Duration;
+
+    fn make_test_location(current_msats: i64) -> Location {
+        let now = Utc::now();
+        Location {
+            id: "test-id".to_string(),
+            name: "Test Location".to_string(),
+            latitude: 0.0,
+            longitude: 0.0,
+            description: None,
+            created_at: now,
+            current_msats,
+            lnurlw_secret: "secret".to_string(),
+            last_refill_at: now,
+            last_withdraw_at: None,
+            write_token: None,
+            write_token_used: false,
+            write_token_created_at: None,
+            user_id: "user-id".to_string(),
+            status: "active".to_string(),
+        }
+    }
+
+    #[test]
+    fn test_withdrawable_msats_zero() {
+        let location = make_test_location(0);
+        assert_eq!(location.withdrawable_msats(), 0);
+    }
+
+    #[test]
+    fn test_withdrawable_msats_below_fixed_fee() {
+        // Fixed fee is 2000 msats (2 sats)
+        // With 1000 msats, after 0.5% routing fee (5 msats) and 2000 fixed fee,
+        // we should get 0 (can't go negative)
+        let location = make_test_location(1000);
+        assert_eq!(location.withdrawable_msats(), 0);
+    }
+
+    #[test]
+    fn test_withdrawable_msats_at_threshold() {
+        // At exactly 2000 msats (2 sats):
+        // Routing fee: 2000 * 0.005 = 10 msats (ceiled)
+        // Fixed fee: 2000 msats
+        // Total fees: 2010 msats
+        // Withdrawable: 2000 - 2010 = -10 -> 0 (clamped)
+        let location = make_test_location(2000);
+        assert_eq!(location.withdrawable_msats(), 0);
+    }
+
+    #[test]
+    fn test_withdrawable_msats_normal() {
+        // With 10000 msats (10 sats):
+        // Routing fee: 10000 * 0.005 = 50 msats
+        // Fixed fee: 2000 msats
+        // Total fees: 2050 msats
+        // Withdrawable: 10000 - 2050 = 7950 msats
+        let location = make_test_location(10000);
+        assert_eq!(location.withdrawable_msats(), 7950);
+    }
+
+    #[test]
+    fn test_withdrawable_msats_large() {
+        // With 1000000 msats (1000 sats):
+        // Routing fee: 1000000 * 0.005 = 5000 msats
+        // Fixed fee: 2000 msats
+        // Total fees: 7000 msats
+        // Withdrawable: 1000000 - 7000 = 993000 msats
+        let location = make_test_location(1000000);
+        assert_eq!(location.withdrawable_msats(), 993000);
+    }
+
+    #[test]
+    fn test_withdrawable_sats() {
+        let location = make_test_location(10000);
+        // 7950 msats = 7 sats (integer division)
+        assert_eq!(location.withdrawable_sats(), 7);
+    }
+
+    #[test]
+    fn test_current_sats() {
+        let location = make_test_location(12345);
+        assert_eq!(location.current_sats(), 12);
+    }
+
+    #[test]
+    fn test_last_activity_at_no_withdraw() {
+        let now = Utc::now();
+        let mut location = make_test_location(1000);
+        location.last_refill_at = now;
+        location.last_withdraw_at = None;
+
+        assert_eq!(location.last_activity_at(), now);
+    }
+
+    #[test]
+    fn test_last_activity_at_withdraw_more_recent() {
+        let now = Utc::now();
+        let earlier = now - Duration::hours(1);
+
+        let mut location = make_test_location(1000);
+        location.last_refill_at = earlier;
+        location.last_withdraw_at = Some(now);
+
+        assert_eq!(location.last_activity_at(), now);
+    }
+
+    #[test]
+    fn test_last_activity_at_refill_more_recent() {
+        let now = Utc::now();
+        let earlier = now - Duration::hours(1);
+
+        let mut location = make_test_location(1000);
+        location.last_refill_at = now;
+        location.last_withdraw_at = Some(earlier);
+
+        assert_eq!(location.last_activity_at(), now);
+    }
+
+    #[test]
+    fn test_location_status_helpers() {
+        let mut location = make_test_location(1000);
+
+        location.status = "created".to_string();
+        assert!(location.is_created());
+        assert!(!location.is_programmed());
+        assert!(!location.is_active());
+
+        location.status = "programmed".to_string();
+        assert!(!location.is_created());
+        assert!(location.is_programmed());
+        assert!(!location.is_active());
+
+        location.status = "active".to_string();
+        assert!(!location.is_created());
+        assert!(!location.is_programmed());
+        assert!(location.is_active());
+    }
+
+    #[test]
+    fn test_auth_method_password_roundtrip() {
+        let auth = AuthMethod::Password {
+            password_hash: "argon2hash123".to_string(),
+        };
+
+        let json = auth.to_json().unwrap();
+        let parsed = AuthMethod::from_json("password", &json).unwrap();
+
+        match parsed {
+            AuthMethod::Password { password_hash } => {
+                assert_eq!(password_hash, "argon2hash123");
+            }
+            _ => panic!("Expected Password variant"),
+        }
+
+        assert_eq!(auth.to_type_string(), "password");
+    }
+
+    #[test]
+    fn test_auth_method_oauth_google_roundtrip() {
+        let auth = AuthMethod::OAuthGoogle {
+            google_id: "google123".to_string(),
+        };
+
+        let json = auth.to_json().unwrap();
+        let parsed = AuthMethod::from_json("oauth_google", &json).unwrap();
+
+        match parsed {
+            AuthMethod::OAuthGoogle { google_id } => {
+                assert_eq!(google_id, "google123");
+            }
+            _ => panic!("Expected OAuthGoogle variant"),
+        }
+
+        assert_eq!(auth.to_type_string(), "oauth_google");
+    }
+
+    #[test]
+    fn test_auth_method_oauth_github_roundtrip() {
+        let auth = AuthMethod::OAuthGithub {
+            github_id: "github456".to_string(),
+        };
+
+        let json = auth.to_json().unwrap();
+        let parsed = AuthMethod::from_json("oauth_github", &json).unwrap();
+
+        match parsed {
+            AuthMethod::OAuthGithub { github_id } => {
+                assert_eq!(github_id, "github456");
+            }
+            _ => panic!("Expected OAuthGithub variant"),
+        }
+
+        assert_eq!(auth.to_type_string(), "oauth_github");
+    }
+
+    #[test]
+    fn test_auth_method_from_json_unknown_type() {
+        let result = AuthMethod::from_json("unknown", "{}");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_donation_pool_total_sats() {
+        let pool = DonationPool {
+            id: 1,
+            total_msats: 123456,
+            updated_at: Utc::now(),
+        };
+        assert_eq!(pool.total_sats(), 123);
+    }
+
+    #[test]
+    fn test_scan_sats_withdrawn() {
+        let scan = Scan {
+            id: "scan-id".to_string(),
+            location_id: "loc-id".to_string(),
+            msats_withdrawn: 5678,
+            scanned_at: Utc::now(),
+        };
+        assert_eq!(scan.sats_withdrawn(), 5);
+    }
+
+    #[test]
+    fn test_refill_display_methods() {
+        let refill = Refill {
+            id: "refill-id".to_string(),
+            location_id: "loc-id".to_string(),
+            msats_added: 1500,
+            balance_before_msats: 5000,
+            balance_after_msats: 6500,
+            base_rate_msats_per_min: 100,
+            slowdown_factor: 0.95,
+            refilled_at: Utc::now(),
+        };
+
+        assert!((refill.sats_added() - 1.5).abs() < 0.001);
+        assert!((refill.balance_before_sats() - 5.0).abs() < 0.001);
+        assert!((refill.balance_after_sats() - 6.5).abs() < 0.001);
+        assert!((refill.base_rate_sats_per_min() - 0.1).abs() < 0.001);
+    }
+}

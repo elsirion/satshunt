@@ -1,5 +1,8 @@
 use crate::{
-    auth::{hash_password, login_user, logout_user, verify_user_password, AuthUser, LoginRequest, RegisterRequest, OptionalAuthUser},
+    auth::{
+        hash_password, login_user, logout_user, verify_user_password, AuthUser, LoginRequest,
+        OptionalAuthUser, RegisterRequest,
+    },
     handlers::api::AppState,
     models::AuthMethod,
     templates,
@@ -7,7 +10,7 @@ use crate::{
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
-    response::{Html, Redirect, Response, IntoResponse},
+    response::{Html, IntoResponse, Redirect, Response},
     Form,
 };
 use serde::Deserialize;
@@ -97,7 +100,8 @@ pub async fn location_detail_page(
     Query(params): Query<ErrorQuery>,
     opt_auth: OptionalAuthUser,
 ) -> Result<Html<String>, StatusCode> {
-    let location = state.db
+    let location = state
+        .db
         .get_location(&id)
         .await
         .map_err(|e| {
@@ -133,7 +137,15 @@ pub async fn location_detail_page(
         None => None,
     };
 
-    let content = templates::location_detail(&location, &photos, &scans, &refills, state.max_sats_per_location, current_user_id, params.error.as_deref());
+    let content = templates::location_detail(
+        &location,
+        &photos,
+        &scans,
+        &refills,
+        state.max_sats_per_location,
+        current_user_id,
+        params.error.as_deref(),
+    );
     let page = templates::base_with_user(&location.name, content, username.as_deref());
 
     Ok(Html(page.into_string()))
@@ -144,7 +156,8 @@ pub async fn nfc_setup_page(
     Path(write_token): Path<String>,
     opt_auth: OptionalAuthUser,
 ) -> Result<Response, StatusCode> {
-    let location = state.db
+    let location = state
+        .db
         .get_location_by_write_token(&write_token)
         .await
         .map_err(|e| {
@@ -154,14 +167,25 @@ pub async fn nfc_setup_page(
         .ok_or(StatusCode::NOT_FOUND)?;
 
     // Check if location has at least one photo
-    let photos = state.db.get_photos_for_location(&location.id).await.map_err(|e| {
-        tracing::error!("Failed to get photos: {}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let photos = state
+        .db
+        .get_photos_for_location(&location.id)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to get photos: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     if photos.is_empty() {
-        tracing::warn!("Attempt to access NFC setup for location {} without photos", location.id);
-        return Ok(Redirect::to(&format!("/locations/{}?error=Please%20add%20at%20least%20one%20photo%20before%20programming", location.id)).into_response());
+        tracing::warn!(
+            "Attempt to access NFC setup for location {} without photos",
+            location.id
+        );
+        return Ok(Redirect::to(&format!(
+            "/locations/{}?error=Please%20add%20at%20least%20one%20photo%20before%20programming",
+            location.id
+        ))
+        .into_response());
     }
 
     let username = match opt_auth.user_id {
@@ -228,12 +252,16 @@ pub async fn login(
     let user = match state.db.get_user_by_username(&login_req.username).await {
         Ok(Some(user)) => user,
         Ok(None) => {
-            tracing::warn!("Login attempt for non-existent user: {}", login_req.username);
+            tracing::warn!(
+                "Login attempt for non-existent user: {}",
+                login_req.username
+            );
             return Redirect::to("/login?error=Invalid%20username%20or%20password").into_response();
         }
         Err(e) => {
             tracing::error!("Database error during login: {}", e);
-            return Redirect::to("/login?error=An%20error%20occurred.%20Please%20try%20again.").into_response();
+            return Redirect::to("/login?error=An%20error%20occurred.%20Please%20try%20again.")
+                .into_response();
         }
     };
 
@@ -243,7 +271,8 @@ pub async fn login(
             // Password is correct, create session
             if let Err(e) = login_user(&session, &user.id).await {
                 tracing::error!("Failed to create session: {}", e);
-                return Redirect::to("/login?error=An%20error%20occurred.%20Please%20try%20again.").into_response();
+                return Redirect::to("/login?error=An%20error%20occurred.%20Please%20try%20again.")
+                    .into_response();
             }
 
             // Update last login time
@@ -261,7 +290,8 @@ pub async fn login(
         }
         Err(e) => {
             tracing::error!("Error verifying password: {}", e);
-            Redirect::to("/login?error=An%20error%20occurred.%20Please%20try%20again.").into_response()
+            Redirect::to("/login?error=An%20error%20occurred.%20Please%20try%20again.")
+                .into_response()
         }
     }
 }
@@ -284,13 +314,17 @@ pub async fn register(
     // Check if username already exists
     match state.db.get_user_by_username(&register_req.username).await {
         Ok(Some(_)) => {
-            tracing::warn!("Registration attempt with existing username: {}", register_req.username);
+            tracing::warn!(
+                "Registration attempt with existing username: {}",
+                register_req.username
+            );
             return Redirect::to("/register?error=Username%20already%20exists").into_response();
         }
         Ok(None) => {}
         Err(e) => {
             tracing::error!("Database error checking username: {}", e);
-            return Redirect::to("/register?error=An%20error%20occurred.%20Please%20try%20again.").into_response();
+            return Redirect::to("/register?error=An%20error%20occurred.%20Please%20try%20again.")
+                .into_response();
         }
     }
 
@@ -299,28 +333,35 @@ pub async fn register(
         Ok(hash) => hash,
         Err(e) => {
             tracing::error!("Failed to hash password: {}", e);
-            return Redirect::to("/register?error=An%20error%20occurred.%20Please%20try%20again.").into_response();
+            return Redirect::to("/register?error=An%20error%20occurred.%20Please%20try%20again.")
+                .into_response();
         }
     };
 
     // Create user with password auth method
     let auth_method = AuthMethod::Password { password_hash };
-    let user = match state.db.create_user(
-        register_req.username.clone(),
-        register_req.email.filter(|e| !e.is_empty()),
-        auth_method,
-    ).await {
+    let user = match state
+        .db
+        .create_user(
+            register_req.username.clone(),
+            register_req.email.filter(|e| !e.is_empty()),
+            auth_method,
+        )
+        .await
+    {
         Ok(user) => user,
         Err(e) => {
             tracing::error!("Failed to create user: {}", e);
-            return Redirect::to("/register?error=An%20error%20occurred.%20Please%20try%20again.").into_response();
+            return Redirect::to("/register?error=An%20error%20occurred.%20Please%20try%20again.")
+                .into_response();
         }
     };
 
     // Log the user in immediately
     if let Err(e) = login_user(&session, &user.id).await {
         tracing::error!("Failed to create session after registration: {}", e);
-        return Redirect::to("/register?error=An%20error%20occurred.%20Please%20try%20again.").into_response();
+        return Redirect::to("/register?error=An%20error%20occurred.%20Please%20try%20again.")
+            .into_response();
     }
 
     tracing::info!("New user registered: {}", user.username);

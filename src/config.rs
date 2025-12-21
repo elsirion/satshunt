@@ -38,9 +38,9 @@ pub struct Config {
 impl Config {
     /// Get the base URL, defaulting to http://host:port if not set
     pub fn get_base_url(&self) -> String {
-        self.base_url.clone().unwrap_or_else(|| {
-            format!("http://{}:{}", self.host, self.port)
-        })
+        self.base_url
+            .clone()
+            .unwrap_or_else(|| format!("http://{}:{}", self.host, self.port))
     }
 
     /// Get the database URL

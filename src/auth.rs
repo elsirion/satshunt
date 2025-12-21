@@ -55,13 +55,10 @@ where
                 StatusCode::INTERNAL_SERVER_ERROR.into_response()
             })?;
 
-        let user_id: Option<String> = session
-            .get(SESSION_USER_KEY)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to get user from session: {}", e);
-                StatusCode::INTERNAL_SERVER_ERROR.into_response()
-            })?;
+        let user_id: Option<String> = session.get(SESSION_USER_KEY).await.map_err(|e| {
+            tracing::error!("Failed to get user from session: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        })?;
 
         match user_id {
             Some(user_id) => Ok(AuthUser { user_id }),
@@ -94,13 +91,10 @@ where
                 StatusCode::INTERNAL_SERVER_ERROR.into_response()
             })?;
 
-        let user_id: Option<String> = session
-            .get(SESSION_USER_KEY)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to get user from session: {}", e);
-                StatusCode::INTERNAL_SERVER_ERROR.into_response()
-            })?;
+        let user_id: Option<String> = session.get(SESSION_USER_KEY).await.map_err(|e| {
+            tracing::error!("Failed to get user from session: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        })?;
 
         Ok(OptionalAuthUser { user_id })
     }
@@ -138,9 +132,7 @@ pub fn verify_user_password(user: &User, password: &str) -> anyhow::Result<bool>
     let auth_method = user.get_auth_method()?;
 
     match auth_method {
-        AuthMethod::Password { password_hash } => {
-            verify_password(password, &password_hash)
-        }
+        AuthMethod::Password { password_hash } => verify_password(password, &password_hash),
         _ => Err(anyhow::anyhow!("User does not use password authentication")),
     }
 }

@@ -1,5 +1,5 @@
-pub mod pages;
 pub mod api;
+pub mod pages;
 
-pub use pages::*;
 pub use api::*;
+pub use pages::*;

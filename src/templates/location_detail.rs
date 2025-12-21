@@ -1,7 +1,15 @@
 use crate::models::{Location, Photo, Refill, Scan};
 use maud::{html, Markup, PreEscaped};
 
-pub fn location_detail(location: &Location, photos: &[Photo], scans: &[Scan], refills: &[Refill], max_sats_per_location: i64, current_user_id: Option<&str>, error: Option<&str>) -> Markup {
+pub fn location_detail(
+    location: &Location,
+    photos: &[Photo],
+    scans: &[Scan],
+    refills: &[Refill],
+    max_sats_per_location: i64,
+    current_user_id: Option<&str>,
+    error: Option<&str>,
+) -> Markup {
     let withdrawable_sats = location.withdrawable_sats();
     let sats_percent = if max_sats_per_location > 0 {
         (withdrawable_sats as f64 / max_sats_per_location as f64 * 100.0) as i32
@@ -9,7 +17,9 @@ pub fn location_detail(location: &Location, photos: &[Photo], scans: &[Scan], re
         0
     };
 
-    let is_owner = current_user_id.map(|id| id == location.user_id).unwrap_or(false);
+    let is_owner = current_user_id
+        .map(|id| id == location.user_id)
+        .unwrap_or(false);
     let can_manage_photos = is_owner && !location.is_active();
 
     html! {

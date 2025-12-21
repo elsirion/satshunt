@@ -58,6 +58,12 @@ rand = "0.8"
 hex = "0.4"
 urlencoding = "2.1"
 
+# Async trait support
+async-trait = "0.1"
+
+[dev-dependencies]
+tempfile = "3"
+
 # Workaround for jemalloc build issues
 [profile.dev.package.tikv-jemalloc-sys]
 opt-level = 1

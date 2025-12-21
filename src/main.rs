@@ -1,12 +1,3 @@
-mod auth;
-mod config;
-mod db;
-mod handlers;
-mod lightning;
-mod models;
-mod refill;
-mod templates;
-
 use anyhow::Result;
 use axum::{
     routing::{delete, get, post},
@@ -15,6 +6,7 @@ use axum::{
 use clap::Parser;
 use config::Config;
 use handlers::api::AppState;
+use satshunt::{config, db, handlers, lightning, refill};
 use std::sync::Arc;
 use tower_http::{services::ServeDir, trace::TraceLayer};
 use tower_sessions::SessionManagerLayer;
@@ -60,10 +52,10 @@ async fn main() -> Result<()> {
     let lightning = lightning::LightningService::new(&blitzi_dir).await?;
     tracing::info!("Lightning service initialized");
 
-    // Create app state
+    // Create app state (wrap lightning in Arc for trait object)
     let app_state = Arc::new(AppState {
         db: (*db).clone(),
-        lightning,
+        lightning: Arc::new(lightning),
         upload_dir: uploads_dir.clone(),
         base_url: base_url.clone(),
         max_sats_per_location: config.max_sats_per_location,
@@ -101,12 +93,18 @@ async fn main() -> Result<()> {
         .route("/setup/:write_token", get(handlers::nfc_setup_page))
         .route("/donate", get(handlers::donate_page))
         .route("/login", get(handlers::login_page).post(handlers::login))
-        .route("/register", get(handlers::register_page).post(handlers::register))
+        .route(
+            "/register",
+            get(handlers::register_page).post(handlers::register),
+        )
         .route("/logout", post(handlers::logout))
         .route("/profile", get(handlers::profile_page))
         // API routes
         .route("/api/locations", post(handlers::create_location))
-        .route("/api/locations/:location_id/photos", post(handlers::upload_photo))
+        .route(
+            "/api/locations/:location_id/photos",
+            post(handlers::upload_photo),
+        )
         .route("/api/photos/:photo_id", delete(handlers::delete_photo))
         .route("/api/lnurlw/:location_id", get(handlers::lnurlw_endpoint))
         .route(
@@ -114,13 +112,22 @@ async fn main() -> Result<()> {
             get(handlers::lnurlw_callback),
         )
         .route("/api/stats", get(handlers::get_stats))
-        .route("/api/donate/invoice", post(handlers::create_donation_invoice))
-        .route("/api/donate/wait/:invoice_and_amount", get(handlers::wait_for_donation))
+        .route(
+            "/api/donate/invoice",
+            post(handlers::create_donation_invoice),
+        )
+        .route(
+            "/api/donate/wait/:invoice_and_amount",
+            get(handlers::wait_for_donation),
+        )
         .route("/api/refill/trigger", post(handlers::manual_refill))
         // Boltcard NFC programming endpoint
         .route("/api/boltcard/:write_token", post(handlers::boltcard_keys))
         // Delete location endpoint (non-active only)
-        .route("/api/locations/:location_id", delete(handlers::delete_location))
+        .route(
+            "/api/locations/:location_id",
+            delete(handlers::delete_location),
+        )
         // Static files
         .nest_service("/uploads", ServeDir::new(&uploads_dir))
         .nest_service("/static", ServeDir::new("static"))
@@ -135,8 +142,14 @@ async fn main() -> Result<()> {
 
     tracing::info!("🚀 SatsHunt server listening on http://{}", addr);
     tracing::info!("📍 Base URL: {}", base_url);
-    tracing::info!("⚙️  Refill formula: {}% of pool per minute divided by active locations", config.pool_percentage_per_minute * 100.0);
-    tracing::info!("⚙️  Max sats per location: {}", config.max_sats_per_location);
+    tracing::info!(
+        "⚙️  Refill formula: {}% of pool per minute divided by active locations",
+        config.pool_percentage_per_minute * 100.0
+    );
+    tracing::info!(
+        "⚙️  Max sats per location: {}",
+        config.max_sats_per_location
+    );
 
     axum::serve(listener, app).await?;
 

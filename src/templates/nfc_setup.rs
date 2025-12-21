@@ -6,7 +6,10 @@ pub fn nfc_setup(location: &Location, write_token: &str, base_url: &str) -> Mark
     let _setup_url = format!("{}/setup/{}", base_url, write_token);
 
     // Generate Boltcard deep links
-    let keys_request_url = format!("{}/api/boltcard/{}?onExisting=UpdateVersion", base_url, write_token);
+    let keys_request_url = format!(
+        "{}/api/boltcard/{}?onExisting=UpdateVersion",
+        base_url, write_token
+    );
     let keys_request_url_encoded = urlencoding::encode(&keys_request_url);
     let boltcard_program_link = format!("boltcard://program?url={}", keys_request_url_encoded);
     let boltcard_reset_link = format!("boltcard://reset?url={}", keys_request_url_encoded);

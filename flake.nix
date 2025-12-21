@@ -53,7 +53,7 @@
       in
       {
         packages.default = pkgs.rustPlatform.buildRustPackage {
-          pname = "multisend";
+          pname = "satshunt";
           version = "0.1.0";
           src = ./.;
 

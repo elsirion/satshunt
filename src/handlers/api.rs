@@ -1,19 +1,22 @@
 use crate::{
     auth::AuthUser,
     db::Database,
-    lightning::{LightningService, LnurlCallbackResponse, LnurlWithdrawCallback, LnurlWithdrawResponse},
+    lightning::{
+        Lightning, LightningService, LnurlCallbackResponse, LnurlWithdrawCallback,
+        LnurlWithdrawResponse,
+    },
 };
 use axum::{
     extract::{Multipart, Path, Query, State},
     http::StatusCode,
     response::Json,
 };
+use chrono::Utc;
+use image::GenericImageView;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{path::PathBuf, sync::Arc};
 use tokio::fs;
-use chrono::Utc;
-use image::GenericImageView;
 
 #[derive(Debug, Deserialize)]
 pub struct CreateLocationRequest {
@@ -25,7 +28,7 @@ pub struct CreateLocationRequest {
 
 pub struct AppState {
     pub db: Database,
-    pub lightning: LightningService,
+    pub lightning: Arc<dyn Lightning>,
     pub upload_dir: PathBuf,
     pub base_url: String,
     pub max_sats_per_location: i64,
@@ -75,18 +78,30 @@ pub async fn create_location(
 
     if donation_pool.total_msats >= INITIAL_MSATS {
         // Deduct from donation pool
-        state.db.subtract_from_donation_pool(INITIAL_MSATS).await.map_err(|e| {
-            tracing::error!("Failed to subtract from donation pool: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+        state
+            .db
+            .subtract_from_donation_pool(INITIAL_MSATS)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to subtract from donation pool: {}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
 
         // Add to location
-        state.db.update_location_msats(&location.id, INITIAL_MSATS).await.map_err(|e| {
-            tracing::error!("Failed to update location msats: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+        state
+            .db
+            .update_location_msats(&location.id, INITIAL_MSATS)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to update location msats: {}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
 
-        tracing::info!("Gave {} initial sats to new location: {}", INITIAL_MSATS / 1000, location.name);
+        tracing::info!(
+            "Gave {} initial sats to new location: {}",
+            INITIAL_MSATS / 1000,
+            location.name
+        );
     } else {
         tracing::warn!(
             "Donation pool too low ({} sats) to give initial {} sats to location: {}",
@@ -164,14 +179,10 @@ pub async fn lnurlw_callback(
     let amount_to_withdraw_msats = withdrawable_msats;
 
     // Pay the invoice
-    state
-        .lightning
-        .pay_invoice(&params.pr)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to pay invoice: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+    state.lightning.pay_invoice(&params.pr).await.map_err(|e| {
+        tracing::error!("Failed to pay invoice: {}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
 
     // Update location balance - subtract the ACTUAL amount from balance
     // (withdrawable amount + fees = full balance reduction)
@@ -208,17 +219,16 @@ pub async fn lnurlw_callback(
 
         // Mark write token as used now that location is activated
         if let Some(token) = &location.write_token {
-            state
-                .db
-                .mark_write_token_used(token)
-                .await
-                .map_err(|e| {
-                    tracing::error!("Failed to mark write token as used: {}", e);
-                    StatusCode::INTERNAL_SERVER_ERROR
-                })?;
+            state.db.mark_write_token_used(token).await.map_err(|e| {
+                tracing::error!("Failed to mark write token as used: {}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
         }
 
-        tracing::info!("Location {} activated on first successful scan", location.name);
+        tracing::info!(
+            "Location {} activated on first successful scan",
+            location.name
+        );
     }
 
     tracing::info!(
@@ -230,7 +240,9 @@ pub async fn lnurlw_callback(
     Ok(Json(LnurlCallbackResponse::ok()))
 }
 
-pub async fn get_stats(State(state): State<Arc<AppState>>) -> Result<Json<serde_json::Value>, StatusCode> {
+pub async fn get_stats(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
     let stats = state.db.get_stats().await.map_err(|e| {
         tracing::error!("Failed to get stats: {}", e);
         StatusCode::INTERNAL_SERVER_ERROR
@@ -268,8 +280,8 @@ pub async fn create_donation_invoice(
         })?;
 
     // Generate QR code
-    use qrcode::QrCode;
     use image::Luma;
+    use qrcode::QrCode;
 
     let qr_code = QrCode::new(&invoice).map_err(|e| {
         tracing::error!("Failed to create QR code: {}", e);
@@ -281,7 +293,7 @@ pub async fn create_donation_invoice(
     // Convert to PNG bytes
     let mut png_bytes = Vec::new();
     use image::codecs::png::PngEncoder;
-    use image::{ImageEncoder, ExtendedColorType};
+    use image::{ExtendedColorType, ImageEncoder};
 
     let encoder = PngEncoder::new(&mut png_bytes);
     encoder
@@ -339,12 +351,19 @@ pub async fn wait_for_donation(
 
     // Add to donation pool (convert sats to msats)
     let amount_msats = amount * 1000;
-    let pool = state.db.add_to_donation_pool(amount_msats).await.map_err(|e| {
-        tracing::error!("Failed to add to donation pool: {}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let pool = state
+        .db
+        .add_to_donation_pool(amount_msats)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to add to donation pool: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
-    tracing::info!("Donation pool updated. New total: {} sats", pool.total_sats());
+    tracing::info!(
+        "Donation pool updated. New total: {} sats",
+        pool.total_sats()
+    );
 
     // Return success HTML fragment for HTMX to swap in
     let html = format!(
@@ -356,7 +375,8 @@ pub async fn wait_for_donation(
             <p class="text-sm text-slate-400 mb-1">New Pool Total</p>
             <p class="text-4xl font-bold text-yellow-400">{} ⚡</p>
         </div>"#,
-        amount, pool.total_sats()
+        amount,
+        pool.total_sats()
     );
 
     Ok(axum::response::Html(html))
@@ -435,8 +455,14 @@ pub async fn boltcard_keys(
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
-    let lnurlw_url = format!("{}/api/lnurlw/{}", state.base_url.replace("https://", "lnurlw://").replace("http://", "lnurlw://"), location.id);
-
+    let lnurlw_url = format!(
+        "{}/api/lnurlw/{}",
+        state
+            .base_url
+            .replace("https://", "lnurlw://")
+            .replace("http://", "lnurlw://"),
+        location.id
+    );
 
     // Handle program action (UID provided)
     if let Some(uid) = &payload.uid {
@@ -531,7 +557,10 @@ pub async fn boltcard_keys(
                 StatusCode::INTERNAL_SERVER_ERROR
             })?;
 
-        tracing::info!("Location {} marked as programmed (write token still valid for retries)", location.name);
+        tracing::info!(
+            "Location {} marked as programmed (write token still valid for retries)",
+            location.name
+        );
     }
     // Handle reset action (LNURLW provided)
     else if let Some(lnurlw) = &payload.lnurlw {
@@ -602,7 +631,11 @@ pub async fn delete_location(
     Path(location_id): Path<String>,
     auth: AuthUser,
 ) -> Result<StatusCode, StatusCode> {
-    tracing::info!("Delete request for location {} by user {}", location_id, auth.user_id);
+    tracing::info!(
+        "Delete request for location {} by user {}",
+        location_id,
+        auth.user_id
+    );
 
     // First check if location exists and belongs to user
     let location = state
@@ -620,15 +653,22 @@ pub async fn delete_location(
 
     // Check ownership
     if location.user_id != auth.user_id {
-        tracing::warn!("User {} attempted to delete location {} owned by {}",
-            auth.user_id, location_id, location.user_id);
+        tracing::warn!(
+            "User {} attempted to delete location {} owned by {}",
+            auth.user_id,
+            location_id,
+            location.user_id
+        );
         return Err(StatusCode::FORBIDDEN);
     }
 
     // Check if active (cannot delete active locations)
     if location.is_active() {
-        tracing::warn!("User {} attempted to delete active location {}",
-            auth.user_id, location_id);
+        tracing::warn!(
+            "User {} attempted to delete active location {}",
+            auth.user_id,
+            location_id
+        );
         return Err(StatusCode::FORBIDDEN);
     }
 
@@ -642,7 +682,10 @@ pub async fn delete_location(
                 tracing::error!("Failed to return msats to donation pool: {}", e);
                 StatusCode::INTERNAL_SERVER_ERROR
             })?;
-        tracing::info!("Returned {} sats to donation pool from deleted location", location.current_sats());
+        tracing::info!(
+            "Returned {} sats to donation pool from deleted location",
+            location.current_sats()
+        );
     }
 
     // Delete the location
@@ -656,11 +699,18 @@ pub async fn delete_location(
         })?;
 
     if result.rows_affected() == 0 {
-        tracing::warn!("Location {} not deleted (may have been activated or doesn't exist)", location_id);
+        tracing::warn!(
+            "Location {} not deleted (may have been activated or doesn't exist)",
+            location_id
+        );
         return Err(StatusCode::NOT_FOUND);
     }
 
-    tracing::info!("Location {} deleted by user {}", location.name, auth.user_id);
+    tracing::info!(
+        "Location {} deleted by user {}",
+        location.name,
+        auth.user_id
+    );
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -679,7 +729,9 @@ fn calculate_slowdown_factor(current_msats: i64, max_msats: i64) -> f64 {
 /// Manually trigger the refill process for all locations
 /// Uses formula: refill_per_location = (pool * 0.00016) / num_locations per minute
 /// With slowdown as location fills up
-pub async fn manual_refill(State(state): State<Arc<AppState>>) -> Result<Json<serde_json::Value>, StatusCode> {
+pub async fn manual_refill(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
     tracing::info!("Manual refill triggered");
 
     let locations = state.db.list_active_locations().await.map_err(|e| {
@@ -710,7 +762,8 @@ pub async fn manual_refill(State(state): State<Arc<AppState>>) -> Result<Json<se
     // Formula: (pool * 0.016%) / num_locations
     const POOL_PERCENTAGE_PER_MINUTE: f64 = 0.00016;
     let base_msats_per_location_per_minute =
-        ((donation_pool.total_msats as f64 * POOL_PERCENTAGE_PER_MINUTE) / num_locations as f64).round() as i64;
+        ((donation_pool.total_msats as f64 * POOL_PERCENTAGE_PER_MINUTE) / num_locations as f64)
+            .round() as i64;
 
     tracing::info!(
         "Base refill rate: {} sats per location per minute (pool: {} sats, locations: {})",
@@ -732,7 +785,8 @@ pub async fn manual_refill(State(state): State<Arc<AppState>>) -> Result<Json<se
 
         // Apply slowdown factor based on how full the location is
         let slowdown_factor = calculate_slowdown_factor(location.current_msats, max_msats);
-        let adjusted_rate_msats = (base_msats_per_location_per_minute as f64 * slowdown_factor).round() as i64;
+        let adjusted_rate_msats =
+            (base_msats_per_location_per_minute as f64 * slowdown_factor).round() as i64;
 
         // Calculate refill amount based on minutes elapsed and adjusted rate
         let refill_amount_msats = minutes_since_activity * adjusted_rate_msats;
@@ -746,28 +800,40 @@ pub async fn manual_refill(State(state): State<Arc<AppState>>) -> Result<Json<se
         let balance_before = location.current_msats;
 
         // Update location balance
-        state.db.update_location_msats(&location.id, new_balance_msats).await.map_err(|e| {
-            tracing::error!("Failed to update location msats: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+        state
+            .db
+            .update_location_msats(&location.id, new_balance_msats)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to update location msats: {}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
 
-        state.db.update_last_refill(&location.id).await.map_err(|e| {
-            tracing::error!("Failed to update last refill: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+        state
+            .db
+            .update_last_refill(&location.id)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to update last refill: {}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
 
         // Record the refill in the log
-        state.db.record_refill(
-            &location.id,
-            actual_refill_msats,
-            balance_before,
-            new_balance_msats,
-            base_msats_per_location_per_minute,
-            slowdown_factor,
-        ).await.map_err(|e| {
-            tracing::error!("Failed to record refill: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+        state
+            .db
+            .record_refill(
+                &location.id,
+                actual_refill_msats,
+                balance_before,
+                new_balance_msats,
+                base_msats_per_location_per_minute,
+                slowdown_factor,
+            )
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to record refill: {}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
 
         total_refilled_msats += actual_refill_msats;
         locations_refilled += 1;
@@ -785,10 +851,14 @@ pub async fn manual_refill(State(state): State<Arc<AppState>>) -> Result<Json<se
 
     // Subtract from donation pool
     if total_refilled_msats > 0 {
-        state.db.subtract_from_donation_pool(total_refilled_msats).await.map_err(|e| {
-            tracing::error!("Failed to subtract from donation pool: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+        state
+            .db
+            .subtract_from_donation_pool(total_refilled_msats)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to subtract from donation pool: {}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
     }
 
     let new_pool = state.db.get_donation_pool().await.map_err(|e| {
@@ -812,7 +882,11 @@ pub async fn upload_photo(
     Path(location_id): Path<String>,
     mut multipart: Multipart,
 ) -> Result<StatusCode, StatusCode> {
-    tracing::info!("Photo upload request for location {} by user {}", location_id, auth.user_id);
+    tracing::info!(
+        "Photo upload request for location {} by user {}",
+        location_id,
+        auth.user_id
+    );
 
     // Get location and verify ownership
     let location = state
@@ -830,15 +904,22 @@ pub async fn upload_photo(
 
     // Check ownership
     if location.user_id != auth.user_id {
-        tracing::warn!("User {} attempted to upload photo to location {} owned by {}",
-            auth.user_id, location_id, location.user_id);
+        tracing::warn!(
+            "User {} attempted to upload photo to location {} owned by {}",
+            auth.user_id,
+            location_id,
+            location.user_id
+        );
         return Err(StatusCode::FORBIDDEN);
     }
 
     // Check if location is active (cannot modify photos of active locations)
     if location.is_active() {
-        tracing::warn!("User {} attempted to upload photo to active location {}",
-            auth.user_id, location_id);
+        tracing::warn!(
+            "User {} attempted to upload photo to active location {}",
+            auth.user_id,
+            location_id
+        );
         return Err(StatusCode::FORBIDDEN);
     }
 
@@ -871,7 +952,10 @@ pub async fn upload_photo(
 
                 tracing::info!(
                     "Resizing image from {}x{} to {}x{}",
-                    width, height, new_width, new_height
+                    width,
+                    height,
+                    new_width,
+                    new_height
                 );
 
                 img.resize(new_width, new_height, image::imageops::FilterType::Lanczos3)
@@ -884,10 +968,11 @@ pub async fn upload_photo(
             let file_path = state.upload_dir.join(&filename);
 
             // Encode as JPEG and save
-            img.save_with_format(&file_path, image::ImageFormat::Jpeg).map_err(|e| {
-                tracing::error!("Failed to save JPEG: {}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?;
+            img.save_with_format(&file_path, image::ImageFormat::Jpeg)
+                .map_err(|e| {
+                    tracing::error!("Failed to save JPEG: {}", e);
+                    StatusCode::INTERNAL_SERVER_ERROR
+                })?;
 
             state
                 .db
@@ -898,7 +983,10 @@ pub async fn upload_photo(
                     StatusCode::INTERNAL_SERVER_ERROR
                 })?;
 
-            tracing::info!("Photo uploaded and converted successfully for location {}", location.name);
+            tracing::info!(
+                "Photo uploaded and converted successfully for location {}",
+                location.name
+            );
             return Ok(StatusCode::OK);
         }
     }
@@ -912,7 +1000,11 @@ pub async fn delete_photo(
     State(state): State<Arc<AppState>>,
     Path(photo_id): Path<String>,
 ) -> Result<StatusCode, StatusCode> {
-    tracing::info!("Photo delete request for photo {} by user {}", photo_id, auth.user_id);
+    tracing::info!(
+        "Photo delete request for photo {} by user {}",
+        photo_id,
+        auth.user_id
+    );
 
     // Get photo to verify it exists and get location_id
     let photo = state
@@ -944,15 +1036,22 @@ pub async fn delete_photo(
 
     // Check ownership
     if location.user_id != auth.user_id {
-        tracing::warn!("User {} attempted to delete photo from location {} owned by {}",
-            auth.user_id, location.id, location.user_id);
+        tracing::warn!(
+            "User {} attempted to delete photo from location {} owned by {}",
+            auth.user_id,
+            location.id,
+            location.user_id
+        );
         return Err(StatusCode::FORBIDDEN);
     }
 
     // Check if location is active (cannot modify photos of active locations)
     if location.is_active() {
-        tracing::warn!("User {} attempted to delete photo from active location {}",
-            auth.user_id, location.id);
+        tracing::warn!(
+            "User {} attempted to delete photo from active location {}",
+            auth.user_id,
+            location.id
+        );
         return Err(StatusCode::FORBIDDEN);
     }
 
@@ -966,14 +1065,10 @@ pub async fn delete_photo(
     }
 
     // Delete photo record
-    state
-        .db
-        .delete_photo(&photo_id)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to delete photo record: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+    state.db.delete_photo(&photo_id).await.map_err(|e| {
+        tracing::error!("Failed to delete photo record: {}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
 
     tracing::info!("Photo {} deleted successfully", photo_id);
     Ok(StatusCode::NO_CONTENT)

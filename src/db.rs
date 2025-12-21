@@ -1,9 +1,12 @@
 use crate::models::*;
 use anyhow::Result;
 use chrono::Utc;
-use sqlx::{SqlitePool, sqlite::{SqliteConnectOptions, SqliteQueryResult}};
-use uuid::Uuid;
+use sqlx::{
+    sqlite::{SqliteConnectOptions, SqliteQueryResult},
+    SqlitePool,
+};
 use std::str::FromStr;
+use uuid::Uuid;
 
 #[derive(Clone)]
 pub struct Database {
@@ -13,8 +16,7 @@ pub struct Database {
 impl Database {
     pub async fn new(database_url: &str) -> Result<Self> {
         // Configure SQLite to create the database file if it doesn't exist
-        let options = SqliteConnectOptions::from_str(database_url)?
-            .create_if_missing(true);
+        let options = SqliteConnectOptions::from_str(database_url)?.create_if_missing(true);
 
         // Connect to the database
         let pool = SqlitePool::connect_with(options).await?;
@@ -141,7 +143,7 @@ impl Database {
 
     pub async fn get_location_by_write_token(&self, token: &str) -> Result<Option<Location>> {
         sqlx::query_as::<_, Location>(
-            "SELECT * FROM locations WHERE write_token = ? AND status != 'active'"
+            "SELECT * FROM locations WHERE write_token = ? AND status != 'active'",
         )
         .bind(token)
         .fetch_optional(&self.pool)
@@ -169,7 +171,7 @@ impl Database {
 
     pub async fn list_active_locations(&self) -> Result<Vec<Location>> {
         sqlx::query_as::<_, Location>(
-            "SELECT * FROM locations WHERE status = 'active' ORDER BY created_at DESC"
+            "SELECT * FROM locations WHERE status = 'active' ORDER BY created_at DESC",
         )
         .fetch_all(&self.pool)
         .await
@@ -178,7 +180,7 @@ impl Database {
 
     pub async fn get_locations_by_user(&self, user_id: &str) -> Result<Vec<Location>> {
         sqlx::query_as::<_, Location>(
-            "SELECT * FROM locations WHERE user_id = ? ORDER BY created_at DESC"
+            "SELECT * FROM locations WHERE user_id = ? ORDER BY created_at DESC",
         )
         .bind(user_id)
         .fetch_all(&self.pool)
@@ -204,7 +206,11 @@ impl Database {
             .map_err(Into::into)
     }
 
-    pub async fn update_location_status(&self, id: &str, status: &str) -> Result<SqliteQueryResult> {
+    pub async fn update_location_status(
+        &self,
+        id: &str,
+        status: &str,
+    ) -> Result<SqliteQueryResult> {
         sqlx::query("UPDATE locations SET status = ? WHERE id = ?")
             .bind(status)
             .bind(id)
@@ -214,14 +220,12 @@ impl Database {
     }
 
     pub async fn delete_location(&self, id: &str, user_id: &str) -> Result<SqliteQueryResult> {
-        sqlx::query(
-            "DELETE FROM locations WHERE id = ? AND user_id = ? AND status != 'active'"
-        )
-        .bind(id)
-        .bind(user_id)
-        .execute(&self.pool)
-        .await
-        .map_err(Into::into)
+        sqlx::query("DELETE FROM locations WHERE id = ? AND user_id = ? AND status != 'active'")
+            .bind(id)
+            .bind(user_id)
+            .execute(&self.pool)
+            .await
+            .map_err(Into::into)
     }
 
     // Photo operations
@@ -242,7 +246,7 @@ impl Database {
 
     pub async fn get_photos_for_location(&self, location_id: &str) -> Result<Vec<Photo>> {
         sqlx::query_as::<_, Photo>(
-            "SELECT * FROM photos WHERE location_id = ? ORDER BY uploaded_at ASC"
+            "SELECT * FROM photos WHERE location_id = ? ORDER BY uploaded_at ASC",
         )
         .bind(location_id)
         .fetch_all(&self.pool)
@@ -332,7 +336,7 @@ impl Database {
 
     pub async fn get_scans_for_location(&self, location_id: &str) -> Result<Vec<Scan>> {
         sqlx::query_as::<_, Scan>(
-            "SELECT * FROM scans WHERE location_id = ? ORDER BY scanned_at DESC"
+            "SELECT * FROM scans WHERE location_id = ? ORDER BY scanned_at DESC",
         )
         .bind(location_id)
         .fetch_all(&self.pool)
@@ -342,16 +346,13 @@ impl Database {
 
     // Stats operations
     pub async fn get_stats(&self) -> Result<Stats> {
-        let total_locations: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM locations WHERE status = 'active'"
-        )
-            .fetch_one(&self.pool)
-            .await?;
+        let total_locations: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM locations WHERE status = 'active'")
+                .fetch_one(&self.pool)
+                .await?;
 
         let total_msats_available: Option<i64> =
-            sqlx::query_scalar(
-                "SELECT SUM(current_msats) FROM locations WHERE status = 'active'"
-            )
+            sqlx::query_scalar("SELECT SUM(current_msats) FROM locations WHERE status = 'active'")
                 .fetch_one(&self.pool)
                 .await?;
 
@@ -363,9 +364,9 @@ impl Database {
 
         Ok(Stats {
             total_locations,
-            total_sats_available: total_msats_available.unwrap_or(0) / 1000,  // Convert to sats for display
+            total_sats_available: total_msats_available.unwrap_or(0) / 1000, // Convert to sats for display
             total_scans,
-            donation_pool_sats: donation_pool.total_sats(),  // Use helper method
+            donation_pool_sats: donation_pool.total_sats(), // Use helper method
         })
     }
 
@@ -428,15 +429,13 @@ impl Database {
         location_id: &str,
         uid: &str,
     ) -> Result<SqliteQueryResult> {
-        sqlx::query(
-            "UPDATE nfc_cards SET uid = ?, programmed_at = ? WHERE location_id = ?"
-        )
-        .bind(uid)
-        .bind(Utc::now())
-        .bind(location_id)
-        .execute(&self.pool)
-        .await
-        .map_err(Into::into)
+        sqlx::query("UPDATE nfc_cards SET uid = ?, programmed_at = ? WHERE location_id = ?")
+            .bind(uid)
+            .bind(Utc::now())
+            .bind(location_id)
+            .execute(&self.pool)
+            .await
+            .map_err(Into::into)
     }
 
     pub async fn increment_nfc_card_version(&self, location_id: &str) -> Result<SqliteQueryResult> {
@@ -500,7 +499,7 @@ impl Database {
 
     pub async fn get_refills_for_location(&self, location_id: &str) -> Result<Vec<Refill>> {
         sqlx::query_as::<_, Refill>(
-            "SELECT * FROM refills WHERE location_id = ? ORDER BY refilled_at DESC LIMIT 100"
+            "SELECT * FROM refills WHERE location_id = ? ORDER BY refilled_at DESC LIMIT 100",
         )
         .bind(location_id)
         .fetch_all(&self.pool)
