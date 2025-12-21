@@ -83,9 +83,9 @@
 
           installPhase = ''
             mkdir -p $out/bin
-            cp target/release/multisend $out/bin/
-            mkdir -p $out/share/multisend
-            cp -r migrations $out/share/multisend/
+            cp target/release/satshunt $out/bin/
+            mkdir -p $out/share/satshunt
+            cp -r migrations $out/share/satshunt/
           '';
 
           # Skip tests during build
