@@ -130,7 +130,7 @@ async fn main() -> Result<()> {
         )
         // Static files
         .nest_service("/uploads", ServeDir::new(&uploads_dir))
-        .nest_service("/static", ServeDir::new("static"))
+        .nest_service("/static", ServeDir::new(&config.static_dir))
         // State and middleware
         .with_state(app_state)
         .layer(session_layer)

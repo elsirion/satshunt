@@ -66,6 +66,7 @@
             cmake
             clang
             llvmPackages.libclang
+            makeWrapper
           ];
 
           buildInputs = with pkgs; [
@@ -83,9 +84,12 @@
 
           installPhase = ''
             mkdir -p $out/bin
-            cp target/release/satshunt $out/bin/
+            cp target/release/satshunt $out/bin/satshunt-unwrapped
             mkdir -p $out/share/satshunt
             cp -r migrations $out/share/satshunt/
+            cp -r static $out/share/satshunt/
+            makeWrapper $out/bin/satshunt-unwrapped $out/bin/satshunt \
+              --set SH_STATIC_DIR $out/share/satshunt/static
           '';
 
           # Skip tests during build

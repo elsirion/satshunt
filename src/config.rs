@@ -33,6 +33,10 @@ pub struct Config {
     /// Refill check interval in seconds
     #[arg(long, env = "SH_REFILL_CHECK_INTERVAL_SECS", default_value = "300")]
     pub refill_check_interval_secs: u64,
+
+    /// Static files directory
+    #[arg(long, env = "SH_STATIC_DIR", default_value = "./static")]
+    pub static_dir: PathBuf,
 }
 
 impl Config {
