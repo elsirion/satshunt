@@ -45,6 +45,26 @@ pub fn base_with_user(title: &str, content: Markup, username: Option<&str>) -> M
                     (content)
                 }
                 (footer())
+
+                // Mobile menu toggle script
+                script {
+                    (maud::PreEscaped(r#"
+                    document.addEventListener('DOMContentLoaded', function() {
+                        const toggleBtn = document.querySelector('[data-collapse-toggle]');
+                        if (toggleBtn) {
+                            toggleBtn.addEventListener('click', function() {
+                                const targetId = this.getAttribute('data-collapse-toggle');
+                                const target = document.getElementById(targetId);
+                                if (target) {
+                                    target.classList.toggle('hidden');
+                                    const expanded = !target.classList.contains('hidden');
+                                    this.setAttribute('aria-expanded', expanded);
+                                }
+                            });
+                        }
+                    });
+                    "#))
+                }
             }
         }
     }
@@ -118,8 +138,8 @@ fn navbar(username: Option<&str>) -> Markup {
 
                     // Mobile menu button
                     button data-collapse-toggle="navbar-mobile" type="button"
-                        class="inline-flex items-center p-2 w-10 h-10 justify-center text-secondary md:hidden hover:bg-tertiary focus:outline-none"
-                        style="border: 2px solid var(--accent-muted);"
+                        class="inline-flex items-center p-2 w-10 h-10 justify-center text-primary md:hidden hover:bg-tertiary focus:outline-none"
+                        style="border: 3px solid var(--accent-muted);"
                         aria-controls="navbar-mobile" aria-expanded="false" {
                         span class="sr-only" { "Open main menu" }
                         svg class="w-5 h-5" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 17 14" {
@@ -130,57 +150,57 @@ fn navbar(username: Option<&str>) -> Markup {
                 }
 
                 // Mobile menu (collapsed by default)
-                div class="hidden w-full md:hidden" id="navbar-mobile" {
+                div class="hidden w-full md:hidden" id="navbar-mobile" style="border-top: 3px solid var(--accent-muted); margin-top: 1rem;" {
                     // Menu items
-                    ul class="flex flex-col mt-4 space-y-2" {
+                    ul class="flex flex-col py-4" {
                         li {
-                            a href="/" class="block py-2 px-3 text-primary rounded hover:bg-tertiary" {
-                                "Home"
+                            a href="/" class="block py-3 text-primary font-bold hover:text-highlight" style="border-bottom: none;" {
+                                "HOME"
                             }
                         }
                         li {
-                            a href="/map" class="block py-2 px-3 text-primary rounded hover:bg-tertiary" {
-                                "Map"
+                            a href="/map" class="block py-3 text-primary font-bold hover:text-highlight" style="border-bottom: none;" {
+                                "MAP"
                             }
                         }
                         li {
-                            a href="/locations/new" class="block py-2 px-3 text-primary rounded hover:bg-tertiary" {
-                                "Add Location"
+                            a href="/locations/new" class="block py-3 text-primary font-bold hover:text-highlight" style="border-bottom: none;" {
+                                "ADD LOCATION"
                             }
                         }
                         li {
-                            a href="/donate" class="block py-2 px-3 text-highlight rounded hover:bg-tertiary" {
+                            a href="/donate" class="block py-3 text-highlight font-bold hover:text-primary orange" style="border-bottom: none;" {
                                 i class="fa-solid fa-coins mr-2" {}
-                                "Donate"
+                                "DONATE"
                             }
                         }
                     }
 
                     // Login status (mobile)
-                    div class="mt-4 pt-4 border-t border-accent-muted" {
+                    div class="py-4" style="border-top: 3px solid var(--accent-muted);" {
                         @if let Some(user) = username {
-                            div class="px-3 py-2 space-y-2" {
-                                a href="/profile" class="flex items-center justify-center gap-2 py-2 px-3 rounded-lg bg-tertiary hover:bg-elevated border border-accent-muted text-primary transition" {
+                            div class="space-y-3" {
+                                a href="/profile" class="flex items-center gap-2 py-2 px-3 bg-tertiary text-primary font-bold mono" style="border: 3px solid var(--accent-muted); border-bottom: 3px solid var(--accent-muted);" {
                                     i class="fa-solid fa-user" {}
                                     (user)
                                 }
                                 form action="/logout" method="post" {
                                     button type="submit"
-                                        class="w-full py-2 px-3 rounded-lg text-muted hover:text-primary hover:bg-tertiary transition text-sm" {
-                                        i class="fa-solid fa-right-from-bracket mr-1" {}
-                                        "Logout"
+                                        class="w-full py-2 px-3 text-muted hover:text-primary font-bold text-left" style="border: none; background: none;" {
+                                        i class="fa-solid fa-right-from-bracket mr-2" {}
+                                        "LOGOUT"
                                     }
                                 }
                             }
                         } @else {
-                            div class="flex flex-col space-y-2 px-3 py-2" {
+                            div class="space-y-3" {
                                 a href="/login"
-                                    class="block py-2 px-3 text-primary rounded-lg hover:bg-tertiary text-center transition" {
-                                    "Login"
+                                    class="block py-2 px-3 text-primary font-bold" style="border-bottom: none;" {
+                                    "LOGIN"
                                 }
                                 a href="/register"
-                                    class="btn-primary text-center" {
-                                    "Register"
+                                    class="btn-brutal-orange block text-center" {
+                                    "REGISTER"
                                 }
                             }
                         }
