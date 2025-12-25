@@ -67,50 +67,6 @@ pub async fn create_location(
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
-    // Give the location initial 5 sats (5000 msats) from donation pool for activation
-    const INITIAL_MSATS: i64 = 5000;
-
-    // Check if donation pool has enough
-    let donation_pool = state.db.get_donation_pool().await.map_err(|e| {
-        tracing::error!("Failed to get donation pool: {}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
-
-    if donation_pool.total_msats >= INITIAL_MSATS {
-        // Deduct from donation pool
-        state
-            .db
-            .subtract_from_donation_pool(INITIAL_MSATS)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to subtract from donation pool: {}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?;
-
-        // Add to location
-        state
-            .db
-            .update_location_msats(&location.id, INITIAL_MSATS)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to update location msats: {}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?;
-
-        tracing::info!(
-            "Gave {} initial sats to new location: {}",
-            INITIAL_MSATS / 1000,
-            location.name
-        );
-    } else {
-        tracing::warn!(
-            "Donation pool too low ({} sats) to give initial {} sats to location: {}",
-            donation_pool.total_sats(),
-            INITIAL_MSATS / 1000,
-            location.name
-        );
-    }
-
     Ok(Json(json!({
         "location_id": location.id,
         "write_token": location.write_token
@@ -171,6 +127,31 @@ pub async fn lnurlw_callback(
     // Check if location has sats available (accounting for fees)
     let withdrawable_msats = location.withdrawable_msats();
     if withdrawable_msats <= 0 {
+        // Even with no sats, activate the location on first scan attempt
+        if !location.is_active() {
+            state
+                .db
+                .update_location_status(&location_id, "active")
+                .await
+                .map_err(|e| {
+                    tracing::error!("Failed to activate location: {}", e);
+                    StatusCode::INTERNAL_SERVER_ERROR
+                })?;
+
+            // Mark write token as used now that location is activated
+            if let Some(token) = &location.write_token {
+                state.db.mark_write_token_used(token).await.map_err(|e| {
+                    tracing::error!("Failed to mark write token as used: {}", e);
+                    StatusCode::INTERNAL_SERVER_ERROR
+                })?;
+            }
+
+            tracing::info!(
+                "Location {} activated on first scan (no sats to withdraw)",
+                location.name
+            );
+        }
+
         return Ok(Json(LnurlCallbackResponse::error("No sats available")));
     }
 
