@@ -145,6 +145,7 @@ pub async fn location_detail_page(
         state.max_sats_per_location,
         current_user_id,
         params.error.as_deref(),
+        &state.base_url,
     );
     let page = templates::base_with_user(&location.name, content, username.as_deref());
 
@@ -154,8 +155,9 @@ pub async fn location_detail_page(
 pub async fn nfc_setup_page(
     State(state): State<Arc<AppState>>,
     Path(write_token): Path<String>,
-    opt_auth: OptionalAuthUser,
+    _opt_auth: OptionalAuthUser,
 ) -> Result<Response, StatusCode> {
+    // Get location by write token and redirect to location detail page
     let location = state
         .db
         .get_location_by_write_token(&write_token)
@@ -166,43 +168,8 @@ pub async fn nfc_setup_page(
         })?
         .ok_or(StatusCode::NOT_FOUND)?;
 
-    // Check if location has at least one photo
-    let photos = state
-        .db
-        .get_photos_for_location(&location.id)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to get photos: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
-
-    if photos.is_empty() {
-        tracing::warn!(
-            "Attempt to access NFC setup for location {} without photos",
-            location.id
-        );
-        return Ok(Redirect::to(&format!(
-            "/locations/{}?error=Please%20add%20at%20least%20one%20photo%20before%20programming",
-            location.id
-        ))
-        .into_response());
-    }
-
-    let username = match opt_auth.user_id {
-        Some(user_id) => state
-            .db
-            .get_user_by_id(&user_id)
-            .await
-            .ok()
-            .flatten()
-            .map(|user| user.username),
-        None => None,
-    };
-
-    let content = templates::nfc_setup(&location, &write_token, &state.base_url);
-    let page = templates::base_with_user("NFC Setup", content, username.as_deref());
-
-    Ok(Html(page.into_string()).into_response())
+    // Redirect to location detail page where NFC setup is now integrated
+    Ok(Redirect::to(&format!("/locations/{}", location.id)).into_response())
 }
 
 pub async fn donate_page(

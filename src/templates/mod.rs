@@ -5,7 +5,6 @@ pub mod location_detail;
 pub mod login;
 pub mod map;
 pub mod new_location;
-pub mod nfc_setup;
 pub mod profile;
 pub mod register;
 
@@ -16,6 +15,5 @@ pub use location_detail::location_detail;
 pub use login::login;
 pub use map::map;
 pub use new_location::new_location;
-pub use nfc_setup::nfc_setup;
 pub use profile::profile;
 pub use register::register;

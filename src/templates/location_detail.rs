@@ -1,6 +1,7 @@
 use crate::models::{Location, Photo, Refill, Scan};
 use maud::{html, Markup, PreEscaped};
 
+#[allow(clippy::too_many_arguments)] // All parameters are needed for the template
 pub fn location_detail(
     location: &Location,
     photos: &[Photo],
@@ -9,6 +10,7 @@ pub fn location_detail(
     max_sats_per_location: i64,
     current_user_id: Option<&str>,
     error: Option<&str>,
+    base_url: &str,
 ) -> Markup {
     let withdrawable_sats = location.withdrawable_sats();
     let sats_percent = if max_sats_per_location > 0 {
@@ -21,6 +23,16 @@ pub fn location_detail(
         .map(|id| id == location.user_id)
         .unwrap_or(false);
     let can_manage_photos = is_owner && !location.is_active();
+
+    // Generate Boltcard deep link for NFC programming
+    let boltcard_deep_link = location.write_token.as_ref().map(|token| {
+        let keys_request_url = format!(
+            "{}/api/boltcard/{}?onExisting=UpdateVersion",
+            base_url, token
+        );
+        let keys_request_url_encoded = urlencoding::encode(&keys_request_url);
+        format!("boltcard://program?url={}", keys_request_url_encoded)
+    });
 
     html! {
         div class="max-w-4xl mx-auto" {
@@ -36,110 +48,84 @@ pub fn location_detail(
                 }
             }
 
-            // Status banner for non-active locations
-            @if !location.is_active() {
-                div class="alert-brutal mb-6" {
-                    div class="flex items-start gap-4" {
-                        div class="flex-shrink-0" {
-                            @if location.is_created() {
-                                i class="fa-solid fa-clock text-3xl text-muted" {}
-                            } @else {
-                                i class="fa-solid fa-hourglass-half text-3xl text-muted" {}
+            // Next step banner for non-active locations (owner only)
+            @if is_owner && !location.is_active() {
+                div class="mb-6 p-6" style="background: var(--highlight-glow); border: 3px solid var(--highlight);" {
+                    // Step 1: Upload photo
+                    @if photos.is_empty() {
+                        div class="flex flex-col md:flex-row md:items-center justify-between gap-4" {
+                            div class="flex items-center gap-4" {
+                                div class="w-12 h-12 flex items-center justify-center text-2xl font-black mono" style="background: var(--highlight); color: var(--text-inverse);" { "1" }
+                                div {
+                                    div class="text-xs text-highlight font-black mb-1" style="letter-spacing: 0.1em;" { "NEXT STEP" }
+                                    div class="text-xl font-black text-primary" { "UPLOAD A PHOTO" }
+                                    div class="text-sm text-secondary font-bold mt-1" { "Add at least one photo so people can find this location" }
+                                }
+                            }
+                            div class="flex gap-2" {
+                                button type="button" onclick="document.getElementById('photoInput').click()" class="btn-brutal-fill" style="background: var(--highlight); border-color: var(--highlight);" {
+                                    i class="fa-solid fa-camera mr-2" {}
+                                    "ADD PHOTO"
+                                }
+                                (delete_button(&location.id))
                             }
                         }
-                        div class="flex-1" {
-                            h3 class="text-lg font-black mb-2 text-primary" {
-                                @if location.is_created() {
-                                    "LOCATION NOT YET PROGRAMMED"
-                                } @else {
-                                    "LOCATION WAITING FOR ACTIVATION"
+                    }
+                    // Step 2: Program NFC - inline UI
+                    @else if location.is_created() {
+                        div class="space-y-4" {
+                            div class="flex flex-col md:flex-row md:items-center justify-between gap-4" {
+                                div class="flex items-center gap-4" {
+                                    div class="w-12 h-12 flex items-center justify-center text-2xl font-black mono" style="background: var(--highlight); color: var(--text-inverse);" { "2" }
+                                    div {
+                                        div class="text-xs text-highlight font-black mb-1" style="letter-spacing: 0.1em;" { "NEXT STEP" }
+                                        div class="text-xl font-black text-primary" { "PROGRAM NFC STICKER" }
+                                    }
+                                }
+                                (delete_button(&location.id))
+                            }
+
+                            // NFC Programming UI
+                            @if let Some(ref deep_link) = boltcard_deep_link {
+                                div class="p-4" style="background: var(--bg-secondary); border: 2px solid var(--accent-muted);" {
+                                    p class="text-primary font-bold mb-3" {
+                                        "Tap the button below with the "
+                                        span class="text-highlight" { "Boltcard NFC Programmer" }
+                                        " app, then hold your NFC sticker to your phone."
+                                    }
+                                    div class="flex flex-wrap gap-2 mb-3" {
+                                        a href=(deep_link) class="btn-brutal-fill text-center" style="background: var(--highlight); border-color: var(--highlight);" {
+                                            i class="fa-solid fa-microchip mr-2" {}
+                                            "PROGRAM NFC"
+                                        }
+                                    }
+                                    div class="text-xs text-muted font-bold" {
+                                        "Don't have the app? "
+                                        a href="https://apps.apple.com/app/boltcard-nfc-programmer/id6450968873" target="_blank" class="text-highlight" style="border-bottom: 1px solid var(--highlight);" { "iOS" }
+                                        " · "
+                                        a href="https://play.google.com/store/apps/details?id=com.lightningnfcapp" target="_blank" class="text-highlight" style="border-bottom: 1px solid var(--highlight);" { "Android" }
+                                    }
                                 }
                             }
-                            @if location.is_created() {
-                                p class="text-secondary mb-3 font-bold text-sm" {
-                                    "THIS LOCATION HAS BEEN CREATED BUT THE NFC STICKER HAS NOT BEEN PROGRAMMED YET. "
-                                    "IT WILL NOT APPEAR ON THE PUBLIC MAP UNTIL IT'S PROGRAMMED AND ACTIVATED."
+                        }
+                    }
+                    // Step 3: Waiting for activation scan
+                    @else {
+                        div class="flex flex-col md:flex-row md:items-center justify-between gap-4" {
+                            div class="flex items-center gap-4" {
+                                div class="w-12 h-12 flex items-center justify-center text-2xl font-black mono" style="background: var(--highlight); color: var(--text-inverse);" { "3" }
+                                div {
+                                    div class="text-xs text-highlight font-black mb-1" style="letter-spacing: 0.1em;" { "NEXT STEP" }
+                                    div class="text-xl font-black text-primary" { "SCAN NFC TO ACTIVATE" }
+                                    div class="text-sm text-secondary font-bold mt-1" { "Scan the NFC sticker with a Lightning wallet to go live" }
                                 }
-                                @if photos.is_empty() {
-                                    p class="text-highlight orange mb-3 font-bold text-sm" {
-                                        i class="fa-solid fa-info-circle mr-1" {}
-                                        "PLEASE ADD AT LEAST ONE PHOTO BEFORE PROGRAMMING THE NFC STICKER."
-                                    }
+                            }
+                            div class="flex gap-2" {
+                                div class="flex items-center gap-2 px-4 py-2 font-black" style="border: 3px solid var(--highlight); color: var(--highlight);" {
+                                    i class="fa-solid fa-hourglass-half" {}
+                                    "WAITING FOR SCAN"
                                 }
-                                div class="flex gap-3" {
-                                    @if let Some(token) = &location.write_token {
-                                        @if !location.write_token_used {
-                                            @if photos.is_empty() {
-                                                button disabled
-                                                    class="inline-flex items-center btn-brutal opacity-50 cursor-not-allowed" {
-                                                    i class="fa-solid fa-microchip mr-2" {}
-                                                    "PROGRAM NFC STICKER"
-                                                }
-                                            } @else {
-                                                a href={"/setup/" (token)}
-                                                    class="inline-flex items-center btn-brutal-orange" {
-                                                    i class="fa-solid fa-microchip mr-2" {}
-                                                    "PROGRAM NFC STICKER"
-                                                }
-                                            }
-                                        }
-                                    }
-                                    button
-                                        onclick={
-                                            "if(confirm('DELETE THIS LOCATION? THIS CANNOT BE UNDONE.')) { "
-                                            "fetch('/api/locations/" (location.id) "', { method: 'DELETE' }) "
-                                            ".then(r => r.ok ? window.location.href='/profile' : alert('FAILED TO DELETE LOCATION')) "
-                                            "}"
-                                        }
-                                        class="inline-flex items-center btn-brutal" style="border-color: var(--highlight); color: var(--highlight);" {
-                                        i class="fa-solid fa-trash mr-2" {}
-                                        "DELETE"
-                                    }
-                                }
-                            } @else {
-                                p class="text-secondary mb-3 font-bold text-sm" {
-                                    "THE NFC STICKER HAS BEEN PROGRAMMED. THIS LOCATION WILL BECOME ACTIVE AND APPEAR ON THE PUBLIC MAP "
-                                    "AFTER THE FIRST SUCCESSFUL SCAN AND WITHDRAWAL."
-                                }
-                                @if photos.is_empty() {
-                                    p class="text-highlight orange mb-3 font-bold text-sm" {
-                                        i class="fa-solid fa-info-circle mr-1" {}
-                                        "NOTE: YOU NEED AT LEAST ONE PHOTO. ADD PHOTOS BELOW BEFORE THE LOCATION GOES LIVE."
-                                    }
-                                }
-                                div class="flex gap-3" {
-                                    @if let Some(token) = &location.write_token {
-                                        @if !location.write_token_used {
-                                            @if photos.is_empty() {
-                                                button disabled
-                                                    class="inline-flex items-center btn-brutal opacity-50 cursor-not-allowed" {
-                                                    i class="fa-solid fa-redo mr-2" {}
-                                                    "RE-PROGRAM NFC STICKER"
-                                                }
-                                            } @else {
-                                                a href={"/setup/" (token)}
-                                                    class="inline-flex items-center btn-brutal-orange" {
-                                                    i class="fa-solid fa-redo mr-2" {}
-                                                    "RE-PROGRAM NFC STICKER"
-                                                }
-                                            }
-                                        }
-                                    }
-                                    button
-                                        onclick={
-                                            "if(confirm('DELETE THIS LOCATION? THIS CANNOT BE UNDONE.')) { "
-                                            "fetch('/api/locations/" (location.id) "', { method: 'DELETE' }) "
-                                            ".then(r => r.ok ? window.location.href='/profile' : alert('FAILED TO DELETE LOCATION')) "
-                                            "}"
-                                        }
-                                        class="inline-flex items-center btn-brutal" style="border-color: var(--highlight); color: var(--highlight);" {
-                                        i class="fa-solid fa-trash mr-2" {}
-                                        "DELETE"
-                                    }
-                                }
-                                p class="text-muted text-xs mt-2 font-bold mono" {
-                                    "IF THE NFC WRITE FAILED, YOU CAN TRY AGAIN WITH THE SAME KEYS"
-                                }
+                                (delete_button(&location.id))
                             }
                         }
                     }
@@ -248,19 +234,18 @@ pub fn location_detail(
 
                 @if can_manage_photos {
                     div class="pt-6 mt-6" style="border-top: 3px solid var(--accent-muted);" {
-                        form id="photoUploadForm" enctype="multipart/form-data" {
-                            label for="photoInput" class="label-brutal mb-2 block" {
-                                "ADD PHOTO"
-                            }
-                            div class="flex gap-3" {
-                                input type="file" id="photoInput" name="photo" accept="image/*"
-                                    class="flex-1 block text-sm text-muted font-bold file:mr-4 file:py-2 file:px-4 file:border-0 file:text-sm file:font-bold file:bg-highlight file:text-primary hover:file:brightness-110" style="border: 2px solid var(--accent-muted);";
-                                button type="submit"
-                                    class="btn-brutal-orange" {
-                                    i class="fa-solid fa-upload mr-2" {}
-                                    "UPLOAD"
-                                }
-                            }
+                        // Hidden file input
+                        input type="file" id="photoInput" name="photo" accept="image/*" class="hidden";
+                        // Upload button that triggers file input
+                        button type="button" id="addPhotoBtn" onclick="document.getElementById('photoInput').click()"
+                            class="btn-brutal-orange" {
+                            i class="fa-solid fa-camera mr-2" {}
+                            "ADD PHOTO"
+                        }
+                        // Loading state (hidden by default)
+                        div id="uploadingState" class="hidden flex items-center gap-2 text-highlight font-bold" {
+                            i class="fa-solid fa-spinner fa-spin mr-2" {}
+                            "UPLOADING..."
                         }
                     }
                 }
@@ -459,21 +444,19 @@ pub fn location_detail(
             location.name, withdrawable_sats
         )))
 
-        // Photo upload script
+        // Photo upload script - auto-upload on file selection
         @if can_manage_photos {
             (PreEscaped(format!(r#"
             <script>
-                document.getElementById('photoUploadForm').addEventListener('submit', async function(e) {{
-                    e.preventDefault();
+                document.getElementById('photoInput').addEventListener('change', async function() {{
+                    if (!this.files || this.files.length === 0) return;
 
-                    const fileInput = document.getElementById('photoInput');
-                    if (!fileInput.files || fileInput.files.length === 0) {{
-                        alert('Please select a photo to upload');
-                        return;
-                    }}
+                    // Show loading state
+                    document.getElementById('addPhotoBtn').classList.add('hidden');
+                    document.getElementById('uploadingState').classList.remove('hidden');
 
                     const formData = new FormData();
-                    formData.append('photo', fileInput.files[0]);
+                    formData.append('photo', this.files[0]);
 
                     try {{
                         const response = await fetch('/api/locations/{}/photos', {{
@@ -485,9 +468,15 @@ pub fn location_detail(
                             location.reload();
                         }} else {{
                             alert('Failed to upload photo');
+                            // Reset state
+                            document.getElementById('addPhotoBtn').classList.remove('hidden');
+                            document.getElementById('uploadingState').classList.add('hidden');
                         }}
                     }} catch (err) {{
                         alert('Error uploading photo: ' + err.message);
+                        // Reset state
+                        document.getElementById('addPhotoBtn').classList.remove('hidden');
+                        document.getElementById('uploadingState').classList.add('hidden');
                     }}
                 }});
             </script>
@@ -532,5 +521,21 @@ pub fn location_detail(
             });
         </script>
         "#))
+
+    }
+}
+
+fn delete_button(location_id: &str) -> Markup {
+    html! {
+        button
+            onclick={
+                "if(confirm('DELETE THIS LOCATION?')) { "
+                "fetch('/api/locations/" (location_id) "', { method: 'DELETE' }) "
+                ".then(r => r.ok ? window.location.href='/profile' : alert('FAILED')) "
+                "}"
+            }
+            class="btn-brutal" style="border-color: var(--accent-muted); color: var(--text-muted);" {
+            i class="fa-solid fa-trash" {}
+        }
     }
 }
