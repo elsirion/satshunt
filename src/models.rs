@@ -255,6 +255,33 @@ impl Refill {
     }
 }
 
+/// Pending donation that is waiting for payment confirmation.
+/// Used to make donation tracking resilient against client disconnects and server restarts.
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+pub struct PendingDonation {
+    pub id: String,
+    pub invoice: String,
+    pub amount_msats: i64,
+    pub status: String, // 'pending', 'completed', 'expired'
+    pub created_at: DateTime<Utc>,
+    pub completed_at: Option<DateTime<Utc>>,
+}
+
+impl PendingDonation {
+    pub fn is_pending(&self) -> bool {
+        self.status == "pending"
+    }
+
+    pub fn is_completed(&self) -> bool {
+        self.status == "completed"
+    }
+
+    /// Get amount in sats for display
+    pub fn amount_sats(&self) -> i64 {
+        self.amount_msats / 1000
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

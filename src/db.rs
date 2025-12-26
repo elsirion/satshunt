@@ -1,4 +1,6 @@
-use crate::models::*;
+use crate::models::{
+    AuthMethod, DonationPool, Location, NfcCard, PendingDonation, Photo, Refill, Scan, Stats, User,
+};
 use anyhow::Result;
 use chrono::Utc;
 use sqlx::{
@@ -503,6 +505,72 @@ impl Database {
         )
         .bind(location_id)
         .fetch_all(&self.pool)
+        .await
+        .map_err(Into::into)
+    }
+
+    // Pending donation operations
+
+    /// Create a new pending donation when an invoice is generated
+    pub async fn create_pending_donation(
+        &self,
+        invoice: String,
+        amount_msats: i64,
+    ) -> Result<PendingDonation> {
+        let id = Uuid::new_v4().to_string();
+        let now = Utc::now();
+
+        sqlx::query_as::<_, PendingDonation>(
+            r#"
+            INSERT INTO pending_donations (id, invoice, amount_msats, status, created_at)
+            VALUES (?, ?, ?, 'pending', ?)
+            RETURNING *
+            "#,
+        )
+        .bind(&id)
+        .bind(&invoice)
+        .bind(amount_msats)
+        .bind(now)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(Into::into)
+    }
+
+    /// Get a pending donation by invoice string
+    pub async fn get_pending_donation_by_invoice(
+        &self,
+        invoice: &str,
+    ) -> Result<Option<PendingDonation>> {
+        sqlx::query_as::<_, PendingDonation>("SELECT * FROM pending_donations WHERE invoice = ?")
+            .bind(invoice)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(Into::into)
+    }
+
+    /// List all pending donations (status = 'pending')
+    pub async fn list_pending_donations(&self) -> Result<Vec<PendingDonation>> {
+        sqlx::query_as::<_, PendingDonation>(
+            "SELECT * FROM pending_donations WHERE status = 'pending' ORDER BY created_at ASC",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(Into::into)
+    }
+
+    /// Mark a pending donation as completed
+    pub async fn complete_pending_donation(&self, invoice: &str) -> Result<PendingDonation> {
+        sqlx::query_as::<_, PendingDonation>(
+            r#"
+            UPDATE pending_donations
+            SET status = 'completed', completed_at = ?
+            WHERE invoice = ?
+            RETURNING *
+            "#,
+        )
+        .bind(Utc::now())
+        .bind(invoice)
+        .fetch_one(&self.pool)
         .await
         .map_err(Into::into)
     }

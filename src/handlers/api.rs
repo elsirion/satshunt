@@ -1,6 +1,7 @@
 use crate::{
     auth::AuthUser,
     db::Database,
+    donation::NewDonation,
     lightning::{
         Lightning, LightningService, LnurlCallbackResponse, LnurlWithdrawCallback,
         LnurlWithdrawResponse,
@@ -17,6 +18,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{path::PathBuf, sync::Arc};
 use tokio::fs;
+use tokio::sync::mpsc;
 
 #[derive(Debug, Deserialize)]
 pub struct CreateLocationRequest {
@@ -32,6 +34,7 @@ pub struct AppState {
     pub upload_dir: PathBuf,
     pub base_url: String,
     pub max_sats_per_location: i64,
+    pub donation_sender: mpsc::UnboundedSender<NewDonation>,
 }
 
 pub async fn create_location(
@@ -260,6 +263,27 @@ pub async fn create_donation_invoice(
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
+    let amount_msats = payload.amount * 1000;
+
+    // Store pending donation in database for resilient tracking
+    state
+        .db
+        .create_pending_donation(invoice.clone(), amount_msats)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to create pending donation: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    // Notify donation service to start awaiting payment
+    if let Err(e) = state.donation_sender.send(NewDonation {
+        invoice: invoice.clone(),
+        amount_msats,
+    }) {
+        tracing::error!("Failed to notify donation service: {}", e);
+        // Don't fail the request - the donation service will pick it up on next restart
+    }
+
     // Generate QR code
     use image::Luma;
     use qrcode::QrCode;
@@ -293,7 +317,7 @@ pub async fn create_donation_invoice(
     use base64::Engine;
     let qr_base64 = base64::engine::general_purpose::STANDARD.encode(&png_bytes);
 
-    tracing::info!("Invoice created successfully");
+    tracing::info!("Invoice created and pending donation recorded");
 
     Ok(Json(json!({
         "invoice": invoice,
@@ -302,7 +326,9 @@ pub async fn create_donation_invoice(
     })))
 }
 
-/// Wait for invoice payment and update donation pool
+/// Wait for invoice payment by polling the database.
+/// This is resilient against client disconnects - the background DonationService
+/// handles the actual payment detection independently.
 pub async fn wait_for_donation(
     State(state): State<Arc<AppState>>,
     Path(invoice_and_amount): Path<String>,
@@ -320,47 +346,69 @@ pub async fn wait_for_donation(
         StatusCode::BAD_REQUEST
     })?;
 
-    tracing::info!("Waiting for payment of {} sats invoice", amount);
+    tracing::info!("Polling for payment of {} sats invoice", amount);
 
-    // Wait for payment (this blocks until paid)
-    state.lightning.await_payment(invoice).await.map_err(|e| {
-        tracing::error!("Failed to await payment: {}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    // Poll the database for up to 5 minutes (300 seconds) with 2-second intervals
+    const MAX_POLLS: u32 = 150;
+    const POLL_INTERVAL_MS: u64 = 2000;
 
-    tracing::info!("Payment received! Adding {} sats to donation pool", amount);
+    for poll in 0..MAX_POLLS {
+        // Check if the pending donation is completed
+        match state.db.get_pending_donation_by_invoice(invoice).await {
+            Ok(Some(donation)) if donation.is_completed() => {
+                tracing::info!("Payment confirmed for {} sats donation", amount);
 
-    // Add to donation pool (convert sats to msats)
-    let amount_msats = amount * 1000;
-    let pool = state
-        .db
-        .add_to_donation_pool(amount_msats)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to add to donation pool: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+                // Get current pool total
+                let pool = state.db.get_donation_pool().await.map_err(|e| {
+                    tracing::error!("Failed to get donation pool: {}", e);
+                    StatusCode::INTERNAL_SERVER_ERROR
+                })?;
 
-    tracing::info!(
-        "Donation pool updated. New total: {} sats",
-        pool.total_sats()
-    );
+                // Return success HTML fragment for HTMX to swap in
+                let html = format!(
+                    r#"<div id="paymentStatus" class="bg-green-900 border border-green-700 text-green-200 px-4 py-3 rounded-lg">
+                        <p class="font-semibold">✓ Payment received!</p>
+                        <p class="text-sm mt-1">Thank you for donating {} sats!</p>
+                    </div>
+                    <div class="text-center mt-4">
+                        <p class="text-sm text-slate-400 mb-1">New Pool Total</p>
+                        <p class="text-4xl font-bold text-yellow-400">{} ⚡</p>
+                    </div>"#,
+                    amount,
+                    pool.total_sats()
+                );
 
-    // Return success HTML fragment for HTMX to swap in
-    let html = format!(
-        r#"<div id="paymentStatus" class="bg-green-900 border border-green-700 text-green-200 px-4 py-3 rounded-lg">
-            <p class="font-semibold">✓ Payment received!</p>
-            <p class="text-sm mt-1">Thank you for donating {} sats!</p>
-        </div>
-        <div class="text-center mt-4">
-            <p class="text-sm text-slate-400 mb-1">New Pool Total</p>
-            <p class="text-4xl font-bold text-yellow-400">{} ⚡</p>
-        </div>"#,
-        amount,
-        pool.total_sats()
-    );
+                return Ok(axum::response::Html(html));
+            }
+            Ok(Some(_)) => {
+                // Still pending, continue polling
+                if poll % 15 == 0 {
+                    // Log every 30 seconds
+                    tracing::debug!("Still waiting for payment... (poll {})", poll);
+                }
+            }
+            Ok(None) => {
+                tracing::error!("Pending donation not found for invoice");
+                return Err(StatusCode::NOT_FOUND);
+            }
+            Err(e) => {
+                tracing::error!("Failed to check pending donation: {}", e);
+                return Err(StatusCode::INTERNAL_SERVER_ERROR);
+            }
+        }
 
-    Ok(axum::response::Html(html))
+        tokio::time::sleep(tokio::time::Duration::from_millis(POLL_INTERVAL_MS)).await;
+    }
+
+    // Timeout - return a message asking user to check later
+    // The payment might still come through and will be credited by the background service
+    let html = r#"<div id="paymentStatus" class="bg-yellow-900 border border-yellow-700 text-yellow-200 px-4 py-3 rounded-lg">
+            <p class="font-semibold">⏳ Still waiting for payment...</p>
+            <p class="text-sm mt-1">The invoice is still valid. If you've already paid, your donation will be credited shortly.</p>
+            <p class="text-sm mt-1">You can safely close this page - the payment will be processed automatically.</p>
+        </div>"#;
+
+    Ok(axum::response::Html(html.to_string()))
 }
 
 /// Generate a random 32-character hex string for card keys

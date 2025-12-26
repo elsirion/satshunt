@@ -7,7 +7,7 @@ use axum::{
 use clap::Parser;
 use config::Config;
 use handlers::api::AppState;
-use satshunt::{config, db, handlers, lightning, refill};
+use satshunt::{config, db, donation, handlers, lightning, refill};
 use std::sync::Arc;
 use tower_http::{services::ServeDir, trace::TraceLayer};
 use tower_sessions::SessionManagerLayer;
@@ -50,16 +50,31 @@ async fn main() -> Result<()> {
     tracing::info!("💾 Database initialized: {}", database_url);
 
     // Initialize Lightning service
-    let lightning = lightning::LightningService::new(&blitzi_dir).await?;
+    let lightning: Arc<dyn lightning::Lightning> =
+        Arc::new(lightning::LightningService::new(&blitzi_dir).await?);
     tracing::info!("Lightning service initialized");
 
-    // Create app state (wrap lightning in Arc for trait object)
+    // Start donation service for resilient donation tracking
+    let donation_service = Arc::new(donation::DonationService::new(db.clone(), lightning.clone()));
+    let donation_sender = donation_service.get_sender();
+
+    tokio::spawn({
+        let donation_service = donation_service.clone();
+        async move {
+            donation_service.start().await;
+        }
+    });
+
+    tracing::info!("Donation service started");
+
+    // Create app state
     let app_state = Arc::new(AppState {
         db: (*db).clone(),
-        lightning: Arc::new(lightning),
+        lightning,
         upload_dir: uploads_dir.clone(),
         base_url: base_url.clone(),
         max_sats_per_location: config.max_sats_per_location,
+        donation_sender,
     });
 
     // Start refill service
