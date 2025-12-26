@@ -1,5 +1,6 @@
 use anyhow::Result;
 use axum::{
+    extract::DefaultBodyLimit,
     routing::{delete, get, post},
     Router,
 };
@@ -103,7 +104,7 @@ async fn main() -> Result<()> {
         .route("/api/locations", post(handlers::create_location))
         .route(
             "/api/locations/:location_id/photos",
-            post(handlers::upload_photo),
+            post(handlers::upload_photo).layer(DefaultBodyLimit::max(20 * 1024 * 1024)), // 20MB limit for photos
         )
         .route("/api/photos/:photo_id", delete(handlers::delete_photo))
         .route("/api/lnurlw/:location_id", get(handlers::lnurlw_endpoint))

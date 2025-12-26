@@ -451,12 +451,20 @@ pub fn location_detail(
                 document.getElementById('photoInput').addEventListener('change', async function() {{
                     if (!this.files || this.files.length === 0) return;
 
+                    const file = this.files[0];
+                    const maxSize = 20 * 1024 * 1024; // 20MB
+
+                    if (file.size > maxSize) {{
+                        alert('Photo is too large. Maximum size is 20MB.');
+                        return;
+                    }}
+
                     // Show loading state
                     document.getElementById('addPhotoBtn').classList.add('hidden');
                     document.getElementById('uploadingState').classList.remove('hidden');
 
                     const formData = new FormData();
-                    formData.append('photo', this.files[0]);
+                    formData.append('photo', file);
 
                     try {{
                         const response = await fetch('/api/locations/{}/photos', {{
@@ -467,14 +475,20 @@ pub fn location_detail(
                         if (response.ok) {{
                             location.reload();
                         }} else {{
-                            alert('Failed to upload photo');
-                            // Reset state
+                            let msg = 'Failed to upload photo';
+                            if (response.status === 413) {{
+                                msg = 'Photo is too large. Maximum size is 20MB.';
+                            }} else if (response.status === 400) {{
+                                msg = 'Invalid image file. Please try a different photo.';
+                            }} else if (response.status === 403) {{
+                                msg = 'You do not have permission to upload photos here.';
+                            }}
+                            alert(msg);
                             document.getElementById('addPhotoBtn').classList.remove('hidden');
                             document.getElementById('uploadingState').classList.add('hidden');
                         }}
                     }} catch (err) {{
-                        alert('Error uploading photo: ' + err.message);
-                        // Reset state
+                        alert('Upload failed. Check your connection and try again.');
                         document.getElementById('addPhotoBtn').classList.remove('hidden');
                         document.getElementById('uploadingState').classList.add('hidden');
                     }}
