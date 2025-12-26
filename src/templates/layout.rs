@@ -220,7 +220,7 @@ fn footer() -> Markup {
                         "© 2024 SATSHUNT · LIGHTNING TREASURE HUNT"
                     }
                     div class="flex mt-4 space-x-5 sm:justify-center sm:mt-0" {
-                        a href="https://github.com" class="text-secondary hover:text-primary font-bold" {
+                        a href="https://github.com/elsirion/satshunt" class="text-secondary hover:text-primary font-bold" {
                             span class="sr-only" { "GitHub" }
                             "GitHub"
                         }
