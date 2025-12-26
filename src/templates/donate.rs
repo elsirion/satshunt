@@ -1,7 +1,7 @@
-use crate::models::DonationPool;
+use crate::models::{DonationPool, PendingDonation};
 use maud::{html, Markup, PreEscaped};
 
-pub fn donate(pool: &DonationPool) -> Markup {
+pub fn donate(pool: &DonationPool, completed_donations: &[PendingDonation]) -> Markup {
     html! {
         h1 class="text-4xl font-black mb-8 text-primary" style="letter-spacing: -0.02em;" {
             i class="fa-solid fa-coins mr-2" {}
@@ -116,6 +116,38 @@ pub fn donate(pool: &DonationPool) -> Markup {
                 }
                 p class="text-highlight orange font-black text-lg" {
                     "YOUR DONATION KEEPS THE TREASURE HUNT ALIVE FOR EVERYONE!"
+                }
+            }
+        }
+
+        // Recent donations list
+        @if !completed_donations.is_empty() {
+            div class="card-brutal-inset mt-8" {
+                h2 class="heading-breaker orange" { "RECENT DONATIONS" }
+                div class="mt-6 overflow-x-auto" {
+                    table class="w-full" {
+                        thead {
+                            tr class="border-b-2 border-tertiary" {
+                                th class="text-left py-2 px-3 font-black text-muted" { "TIME" }
+                                th class="text-right py-2 px-3 font-black text-muted" { "AMOUNT" }
+                            }
+                        }
+                        tbody {
+                            @for donation in completed_donations {
+                                tr class="border-b border-tertiary hover:bg-tertiary" {
+                                    td class="py-2 px-3 text-secondary" {
+                                        @if let Some(completed_at) = donation.completed_at {
+                                            (completed_at.format("%Y-%m-%d %H:%M UTC"))
+                                        }
+                                    }
+                                    td class="py-2 px-3 text-right font-bold text-highlight orange" {
+                                        (donation.amount_sats()) " "
+                                        i class="fa-solid fa-bolt" {}
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }

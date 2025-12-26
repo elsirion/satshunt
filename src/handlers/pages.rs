@@ -181,6 +181,11 @@ pub async fn donate_page(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
+    let completed_donations = state.db.list_completed_donations().await.map_err(|e| {
+        tracing::error!("Failed to get completed donations: {}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
     let username = match opt_auth.user_id {
         Some(user_id) => state
             .db
@@ -192,7 +197,7 @@ pub async fn donate_page(
         None => None,
     };
 
-    let content = templates::donate(&pool);
+    let content = templates::donate(&pool, &completed_donations);
     let page = templates::base_with_user("Donate", content, username.as_deref());
 
     Ok(Html(page.into_string()))

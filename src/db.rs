@@ -574,4 +574,14 @@ impl Database {
         .await
         .map_err(Into::into)
     }
+
+    /// List completed donations (most recent first, limited to 50)
+    pub async fn list_completed_donations(&self) -> Result<Vec<PendingDonation>> {
+        sqlx::query_as::<_, PendingDonation>(
+            "SELECT * FROM pending_donations WHERE status = 'completed' ORDER BY completed_at DESC LIMIT 50",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(Into::into)
+    }
 }
