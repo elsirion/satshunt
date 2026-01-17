@@ -2,10 +2,8 @@ use crate::{
     auth::AuthUser,
     db::Database,
     donation::NewDonation,
-    lightning::{
-        Lightning, LightningService, LnurlCallbackResponse, LnurlWithdrawCallback,
-        LnurlWithdrawResponse,
-    },
+    lightning::{Lightning, LightningService},
+    lnurl, ntag424,
 };
 use axum::{
     extract::{Multipart, Path, Query, State},
@@ -74,154 +72,6 @@ pub async fn create_location(
         "location_id": location.id,
         "write_token": location.write_token
     })))
-}
-
-/// LNURL-withdraw endpoint
-/// Returns the withdrawal offer when scanned
-pub async fn lnurlw_endpoint(
-    State(state): State<Arc<AppState>>,
-    Path(location_id): Path<String>,
-) -> Result<Json<LnurlWithdrawResponse>, StatusCode> {
-    let location = state
-        .db
-        .get_location(&location_id)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to get location: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?
-        .ok_or(StatusCode::NOT_FOUND)?;
-
-    let callback_url = format!("{}/api/lnurlw/{}/callback", state.base_url, location_id);
-
-    // Show only the withdrawable amount (accounting for fees)
-    let response = LnurlWithdrawResponse::new(
-        callback_url,
-        location.lnurlw_secret.clone(),
-        location.withdrawable_sats(),
-        &location.name,
-    );
-
-    Ok(Json(response))
-}
-
-/// LNURL-withdraw callback
-/// Processes the actual withdrawal when user provides their invoice
-pub async fn lnurlw_callback(
-    State(state): State<Arc<AppState>>,
-    Path(location_id): Path<String>,
-    Query(params): Query<LnurlWithdrawCallback>,
-) -> Result<Json<LnurlCallbackResponse>, StatusCode> {
-    let location = state
-        .db
-        .get_location(&location_id)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to get location: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?
-        .ok_or(StatusCode::NOT_FOUND)?;
-
-    // Verify secret
-    if params.secret != location.lnurlw_secret {
-        return Ok(Json(LnurlCallbackResponse::error("Invalid secret")));
-    }
-
-    // Check if location has sats available (accounting for fees)
-    let withdrawable_msats = location.withdrawable_msats();
-    if withdrawable_msats <= 0 {
-        // Even with no sats, activate the location on first scan attempt
-        if !location.is_active() {
-            state
-                .db
-                .update_location_status(&location_id, "active")
-                .await
-                .map_err(|e| {
-                    tracing::error!("Failed to activate location: {}", e);
-                    StatusCode::INTERNAL_SERVER_ERROR
-                })?;
-
-            // Mark write token as used now that location is activated
-            if let Some(token) = &location.write_token {
-                state.db.mark_write_token_used(token).await.map_err(|e| {
-                    tracing::error!("Failed to mark write token as used: {}", e);
-                    StatusCode::INTERNAL_SERVER_ERROR
-                })?;
-            }
-
-            tracing::info!(
-                "Location {} activated on first scan (no sats to withdraw)",
-                location.name
-            );
-        }
-
-        return Ok(Json(LnurlCallbackResponse::error("No sats available")));
-    }
-
-    // TODO: Parse invoice to get the amount
-    // For now, we'll withdraw the withdrawable amount (after fees)
-    let amount_to_withdraw_msats = withdrawable_msats;
-
-    // Pay the invoice
-    state.lightning.pay_invoice(&params.pr).await.map_err(|e| {
-        tracing::error!("Failed to pay invoice: {}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
-
-    // Update location balance - subtract the ACTUAL amount from balance
-    // (withdrawable amount + fees = full balance reduction)
-    let new_balance_msats = 0; // After withdrawal, balance goes to 0
-    state
-        .db
-        .update_location_msats(&location_id, new_balance_msats)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to update location msats: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
-
-    // Record the scan with the amount that was actually withdrawn
-    state
-        .db
-        .record_scan(&location_id, amount_to_withdraw_msats)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to record scan: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
-
-    // Activate location on first successful scan if it's not already active
-    if !location.is_active() {
-        state
-            .db
-            .update_location_status(&location_id, "active")
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to activate location: {}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?;
-
-        // Mark write token as used now that location is activated
-        if let Some(token) = &location.write_token {
-            state.db.mark_write_token_used(token).await.map_err(|e| {
-                tracing::error!("Failed to mark write token as used: {}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?;
-        }
-
-        tracing::info!(
-            "Location {} activated on first successful scan",
-            location.name
-        );
-    }
-
-    tracing::info!(
-        "Withdrawal from location {} for {} sats",
-        location.name,
-        amount_to_withdraw_msats / 1000
-    );
-
-    Ok(Json(LnurlCallbackResponse::ok()))
 }
 
 pub async fn get_stats(
@@ -484,14 +334,7 @@ pub async fn boltcard_keys(
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
-    let lnurlw_url = format!(
-        "{}/api/lnurlw/{}",
-        state
-            .base_url
-            .replace("https://", "lnurlw://")
-            .replace("http://", "lnurlw://"),
-        location.id
-    );
+    let lnurlw_url = format!("{}/api/lnurlw/{}", state.base_url, location.id);
 
     // Handle program action (UID provided)
     if let Some(uid) = &payload.uid {
@@ -1101,4 +944,292 @@ pub async fn delete_photo(
 
     tracing::info!("Photo {} deleted successfully", photo_id);
     Ok(StatusCode::NO_CONTENT)
+}
+
+// ============================================================================
+// Withdrawal API Endpoints
+// ============================================================================
+
+/// Query parameters for SUN message verification
+#[derive(Debug, Deserialize)]
+pub struct SunParams {
+    /// NTAG424 encrypted picc_data (parameter name: p)
+    #[serde(alias = "picc_data")]
+    pub p: String,
+    /// NTAG424 CMAC signature (parameter name: c)
+    #[serde(alias = "cmac")]
+    pub c: String,
+}
+
+/// Request body for LN address withdrawal
+#[derive(Debug, Deserialize)]
+pub struct LnAddressWithdrawRequest {
+    pub ln_address: String,
+}
+
+/// Request body for invoice withdrawal
+#[derive(Debug, Deserialize)]
+pub struct InvoiceWithdrawRequest {
+    pub invoice: String,
+}
+
+/// Response for withdrawal endpoints
+#[derive(Debug, Serialize)]
+pub struct WithdrawResponse {
+    pub success: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub amount_sats: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub redirect_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+impl WithdrawResponse {
+    fn success(amount_sats: i64, location_id: &str) -> Self {
+        Self {
+            success: true,
+            amount_sats: Some(amount_sats),
+            redirect_url: Some(format!(
+                "/locations/{}?success=withdrawn&amount={}",
+                location_id, amount_sats
+            )),
+            error: None,
+        }
+    }
+
+    fn error(message: impl Into<String>) -> Self {
+        Self {
+            success: false,
+            amount_sats: None,
+            redirect_url: None,
+            error: Some(message.into()),
+        }
+    }
+}
+
+/// Helper to verify SUN message and prepare for withdrawal
+async fn verify_and_prepare_withdrawal(
+    state: &AppState,
+    location_id: &str,
+    sun_params: &SunParams,
+) -> Result<(crate::models::Location, crate::models::NfcCard, u32, i64), WithdrawResponse> {
+    // Verify the SUN message
+    let verification =
+        ntag424::verify_sun_message(&state.db, location_id, &sun_params.p, &sun_params.c)
+            .await
+            .map_err(|e| match e {
+                ntag424::SunError::ReplayDetected { .. } => WithdrawResponse::error(
+                    "This scan has already been used. Please scan the sticker again.",
+                ),
+                ntag424::SunError::CmacMismatch => {
+                    WithdrawResponse::error("Invalid NFC scan. Please scan the sticker again.")
+                }
+                ntag424::SunError::UidMismatch { .. } => {
+                    WithdrawResponse::error("Invalid NFC card for this location.")
+                }
+                ntag424::SunError::CardNotFound | ntag424::SunError::CardNotProgrammed => {
+                    WithdrawResponse::error("NFC card not configured.")
+                }
+                _ => {
+                    tracing::error!("SUN verification error: {}", e);
+                    WithdrawResponse::error("Verification failed. Please try again.")
+                }
+            })?;
+
+    let location = verification.location;
+    let nfc_card = verification.nfc_card;
+    let counter = verification.counter;
+
+    // Check if location has sats available
+    let withdrawable_msats = location.withdrawable_msats();
+    if withdrawable_msats <= 0 {
+        return Err(WithdrawResponse::error(
+            "No sats available at this location.",
+        ));
+    }
+
+    Ok((location, nfc_card, counter, withdrawable_msats))
+}
+
+/// Finalize a successful withdrawal
+async fn finalize_withdrawal(
+    state: &AppState,
+    location_id: &str,
+    nfc_card_location_id: &str,
+    new_counter: u32,
+    amount_msats: i64,
+) -> Result<(), StatusCode> {
+    // Update NFC card counter
+    state
+        .db
+        .update_nfc_card_counter(nfc_card_location_id, new_counter as i64)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to update NFC card counter: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    // Update location balance to 0
+    state
+        .db
+        .update_location_msats(location_id, 0)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to update location balance: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    // Record the scan
+    state
+        .db
+        .record_scan(location_id, amount_msats)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to record scan: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    Ok(())
+}
+
+/// Withdraw via Lightning Address
+///
+/// POST /api/withdraw/{location_id}/ln-address?picc_data={}&cmac={}
+/// Body: { "ln_address": "user@domain.com" }
+pub async fn withdraw_ln_address(
+    State(state): State<Arc<AppState>>,
+    Path(location_id): Path<String>,
+    Query(sun_params): Query<SunParams>,
+    Json(payload): Json<LnAddressWithdrawRequest>,
+) -> Result<Json<WithdrawResponse>, StatusCode> {
+    tracing::info!(
+        "LN address withdrawal request for location {}: {}",
+        location_id,
+        payload.ln_address
+    );
+
+    // Verify SUN and get withdrawal info
+    let (location, nfc_card, counter, withdrawable_msats) =
+        match verify_and_prepare_withdrawal(&state, &location_id, &sun_params).await {
+            Ok(result) => result,
+            Err(response) => return Ok(Json(response)),
+        };
+
+    let withdrawable_sats = withdrawable_msats / 1000;
+
+    // Resolve LN address and get invoice
+    let invoice =
+        match lnurl::get_invoice_for_ln_address(&payload.ln_address, withdrawable_msats).await {
+            Ok(inv) => inv,
+            Err(lnurl::LnurlError::InvalidFormat(msg)) => {
+                return Ok(Json(WithdrawResponse::error(format!(
+                    "Invalid Lightning address: {}",
+                    msg
+                ))));
+            }
+            Err(lnurl::LnurlError::AmountOutOfRange { min, max, .. }) => {
+                return Ok(Json(WithdrawResponse::error(format!(
+                    "Amount {} sats is outside the allowed range ({}-{} sats)",
+                    withdrawable_sats,
+                    min / 1000,
+                    max / 1000
+                ))));
+            }
+            Err(e) => {
+                tracing::error!("LN address resolution failed: {}", e);
+                return Ok(Json(WithdrawResponse::error(
+                    "Could not resolve Lightning address. Please check and try again.",
+                )));
+            }
+        };
+
+    // Pay the invoice
+    if let Err(e) = state.lightning.pay_invoice(&invoice).await {
+        tracing::error!("Failed to pay invoice: {}", e);
+        return Ok(Json(WithdrawResponse::error(
+            "Payment failed. Please try again.",
+        )));
+    }
+
+    // Finalize the withdrawal
+    finalize_withdrawal(
+        &state,
+        &location_id,
+        &nfc_card.location_id,
+        counter,
+        withdrawable_msats,
+    )
+    .await?;
+
+    tracing::info!(
+        "Successful LN address withdrawal from {}: {} sats to {}",
+        location.name,
+        withdrawable_sats,
+        payload.ln_address
+    );
+
+    Ok(Json(WithdrawResponse::success(
+        withdrawable_sats,
+        &location_id,
+    )))
+}
+
+/// Withdraw via pasted BOLT11 invoice
+///
+/// POST /api/withdraw/{location_id}/invoice?picc_data={}&cmac={}
+/// Body: { "invoice": "lnbc..." }
+pub async fn withdraw_invoice(
+    State(state): State<Arc<AppState>>,
+    Path(location_id): Path<String>,
+    Query(sun_params): Query<SunParams>,
+    Json(payload): Json<InvoiceWithdrawRequest>,
+) -> Result<Json<WithdrawResponse>, StatusCode> {
+    tracing::info!("Invoice withdrawal request for location {}", location_id);
+
+    // Verify SUN and get withdrawal info
+    let (location, nfc_card, counter, withdrawable_msats) =
+        match verify_and_prepare_withdrawal(&state, &location_id, &sun_params).await {
+            Ok(result) => result,
+            Err(response) => return Ok(Json(response)),
+        };
+
+    let withdrawable_sats = withdrawable_msats / 1000;
+
+    // Basic invoice validation
+    let invoice = payload.invoice.trim();
+    if !invoice.to_lowercase().starts_with("lnbc") {
+        return Ok(Json(WithdrawResponse::error(
+            "Invalid invoice format. Must be a valid Lightning invoice.",
+        )));
+    }
+
+    // Pay the invoice
+    if let Err(e) = state.lightning.pay_invoice(invoice).await {
+        tracing::error!("Failed to pay invoice: {}", e);
+        return Ok(Json(WithdrawResponse::error(
+            "Payment failed. Please check the invoice and try again.",
+        )));
+    }
+
+    // Finalize the withdrawal
+    finalize_withdrawal(
+        &state,
+        &location_id,
+        &nfc_card.location_id,
+        counter,
+        withdrawable_msats,
+    )
+    .await?;
+
+    tracing::info!(
+        "Successful invoice withdrawal from {}: {} sats",
+        location.name,
+        withdrawable_sats
+    );
+
+    Ok(Json(WithdrawResponse::success(
+        withdrawable_sats,
+        &location_id,
+    )))
 }

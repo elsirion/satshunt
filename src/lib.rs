@@ -5,6 +5,8 @@ pub mod db;
 pub mod donation;
 pub mod handlers;
 pub mod lightning;
+pub mod lnurl;
 pub mod models;
+pub mod ntag424;
 pub mod refill;
 pub mod templates;

@@ -106,6 +106,7 @@
             llvmPackages.libclang
             llvmPackages.libcxxClang
             rustAnalyzerMcp
+            openssl
           ];
 
           LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";

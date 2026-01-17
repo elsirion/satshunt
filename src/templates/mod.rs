@@ -7,6 +7,7 @@ pub mod map;
 pub mod new_location;
 pub mod profile;
 pub mod register;
+pub mod withdraw;
 
 pub use donate::donate;
 pub use home::home;
@@ -17,3 +18,4 @@ pub use map::map;
 pub use new_location::new_location;
 pub use profile::profile;
 pub use register::register;
+pub use withdraw::withdraw;

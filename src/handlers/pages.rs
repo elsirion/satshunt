@@ -5,7 +5,7 @@ use crate::{
     },
     handlers::api::AppState,
     models::AuthMethod,
-    templates,
+    ntag424, templates,
 };
 use axum::{
     extract::{Path, Query, State},
@@ -20,6 +20,24 @@ use tower_sessions::Session;
 #[derive(Deserialize)]
 pub struct ErrorQuery {
     error: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct LocationDetailQuery {
+    pub error: Option<String>,
+    pub success: Option<String>,
+    pub amount: Option<i64>,
+}
+
+#[derive(Deserialize)]
+pub struct WithdrawQuery {
+    /// NTAG424 encrypted picc_data (parameter name: p)
+    #[serde(alias = "picc_data")]
+    pub p: Option<String>,
+    /// NTAG424 CMAC signature (parameter name: c)
+    #[serde(alias = "cmac")]
+    pub c: Option<String>,
+    pub error: Option<String>,
 }
 
 pub async fn home_page(
@@ -97,7 +115,7 @@ pub async fn new_location_page(
 pub async fn location_detail_page(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
-    Query(params): Query<ErrorQuery>,
+    Query(params): Query<LocationDetailQuery>,
     opt_auth: OptionalAuthUser,
 ) -> Result<Html<String>, StatusCode> {
     let location = state
@@ -145,6 +163,8 @@ pub async fn location_detail_page(
         state.max_sats_per_location,
         current_user_id,
         params.error.as_deref(),
+        params.success.as_deref(),
+        params.amount,
         &state.base_url,
     );
     let page = templates::base_with_user(&location.name, content, username.as_deref());
@@ -381,4 +401,137 @@ pub async fn profile_page(
     let page = templates::base_with_user("Profile", content, Some(&user.username));
 
     Ok(Html(page.into_string()))
+}
+
+/// Withdraw page - displays multiple withdrawal options for a location.
+///
+/// The URL should contain picc_data and cmac query parameters from the NFC chip
+/// for counter verification.
+///
+/// On first scan of a programmed location, this activates the location and
+/// redirects to the location details page.
+pub async fn withdraw_page(
+    State(state): State<Arc<AppState>>,
+    Path(location_id): Path<String>,
+    Query(params): Query<WithdrawQuery>,
+    opt_auth: OptionalAuthUser,
+) -> Result<Response, StatusCode> {
+    // Get the location
+    let location = state
+        .db
+        .get_location(&location_id)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to get location: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    // Get username for navbar
+    let username = match opt_auth.user_id {
+        Some(user_id) => state
+            .db
+            .get_user_by_id(&user_id)
+            .await
+            .ok()
+            .flatten()
+            .map(|user| user.username),
+        None => None,
+    };
+
+    // Check if we have SUN parameters
+    let (picc_data, cmac) = match (&params.p, &params.c) {
+        (Some(p), Some(c)) => (p.clone(), c.clone()),
+        _ => {
+            // No SUN parameters - show error
+            let content = templates::withdraw::withdraw(
+                &location,
+                location.withdrawable_sats(),
+                "",
+                "",
+                Some("Invalid NFC scan. Please scan the sticker again."),
+            );
+            let page = templates::base_with_user("Withdraw", content, username.as_deref());
+            return Ok(Html(page.into_string()).into_response());
+        }
+    };
+
+    // Verify the SUN message
+    let verification =
+        ntag424::verify_sun_message(&state.db, &location_id, &picc_data, &cmac).await;
+
+    // Handle first scan activation - if location is programmed but not active,
+    // activate it and redirect to location details page
+    if location.is_programmed() {
+        match &verification {
+            Ok(v) => {
+                // Update counter to prevent replay
+                state
+                    .db
+                    .update_nfc_card_counter(&v.nfc_card.location_id, v.counter as i64)
+                    .await
+                    .map_err(|e| {
+                        tracing::error!("Failed to update NFC card counter: {}", e);
+                        StatusCode::INTERNAL_SERVER_ERROR
+                    })?;
+
+                // Activate the location
+                state
+                    .db
+                    .update_location_status(&location.id, "active")
+                    .await
+                    .map_err(|e| {
+                        tracing::error!("Failed to activate location: {}", e);
+                        StatusCode::INTERNAL_SERVER_ERROR
+                    })?;
+
+                tracing::info!("Location {} activated on first scan", location.name);
+
+                // Redirect to location details page
+                return Ok(
+                    Redirect::to(&format!("/locations/{}?success=activated", location.id))
+                        .into_response(),
+                );
+            }
+            Err(e) => {
+                tracing::error!("First scan verification failed: {}", e);
+                // Fall through to show error on withdraw page
+            }
+        }
+    }
+
+    // For active locations, show the withdraw page
+    let error_message = match verification {
+        Ok(_) => None,
+        Err(ntag424::SunError::ReplayDetected { .. }) => {
+            Some("This scan has already been used. Please scan the sticker again.")
+        }
+        Err(ntag424::SunError::CmacMismatch) => {
+            Some("Invalid NFC scan. Please scan the sticker again.")
+        }
+        Err(ntag424::SunError::UidMismatch { .. }) => {
+            Some("Invalid NFC card. This card is not associated with this location.")
+        }
+        Err(ntag424::SunError::CardNotFound) | Err(ntag424::SunError::CardNotProgrammed) => {
+            Some("NFC card not configured. Please contact the location owner.")
+        }
+        Err(e) => {
+            tracing::error!("SUN verification error: {}", e);
+            Some("Verification failed. Please try scanning again.")
+        }
+    };
+
+    // Combine with any error from query params
+    let error = params.error.as_deref().or(error_message);
+
+    let content = templates::withdraw::withdraw(
+        &location,
+        location.withdrawable_sats(),
+        &picc_data,
+        &cmac,
+        error,
+    );
+    let page = templates::base_with_user("Withdraw", content, username.as_deref());
+
+    Ok(Html(page.into_string()).into_response())
 }

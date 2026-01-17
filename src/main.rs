@@ -55,7 +55,10 @@ async fn main() -> Result<()> {
     tracing::info!("Lightning service initialized");
 
     // Start donation service for resilient donation tracking
-    let donation_service = Arc::new(donation::DonationService::new(db.clone(), lightning.clone()));
+    let donation_service = Arc::new(donation::DonationService::new(
+        db.clone(),
+        lightning.clone(),
+    ));
     let donation_sender = donation_service.get_sender();
 
     tokio::spawn({
@@ -108,6 +111,7 @@ async fn main() -> Result<()> {
         .route("/locations/:id", get(handlers::location_detail_page))
         .route("/setup/:write_token", get(handlers::nfc_setup_page))
         .route("/donate", get(handlers::donate_page))
+        .route("/withdraw/:location_id", get(handlers::withdraw_page))
         .route("/login", get(handlers::login_page).post(handlers::login))
         .route(
             "/register",
@@ -122,11 +126,6 @@ async fn main() -> Result<()> {
             post(handlers::upload_photo).layer(DefaultBodyLimit::max(20 * 1024 * 1024)), // 20MB limit for photos
         )
         .route("/api/photos/:photo_id", delete(handlers::delete_photo))
-        .route("/api/lnurlw/:location_id", get(handlers::lnurlw_endpoint))
-        .route(
-            "/api/lnurlw/:location_id/callback",
-            get(handlers::lnurlw_callback),
-        )
         .route("/api/stats", get(handlers::get_stats))
         .route(
             "/api/donate/invoice",
@@ -137,6 +136,15 @@ async fn main() -> Result<()> {
             get(handlers::wait_for_donation),
         )
         .route("/api/refill/trigger", post(handlers::manual_refill))
+        // Withdrawal API endpoints
+        .route(
+            "/api/withdraw/:location_id/ln-address",
+            post(handlers::withdraw_ln_address),
+        )
+        .route(
+            "/api/withdraw/:location_id/invoice",
+            post(handlers::withdraw_invoice),
+        )
         // Boltcard NFC programming endpoint
         .route("/api/boltcard/:write_token", post(handlers::boltcard_keys))
         // Delete location endpoint (non-active only)

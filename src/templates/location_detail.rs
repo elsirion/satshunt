@@ -10,6 +10,8 @@ pub fn location_detail(
     max_sats_per_location: i64,
     current_user_id: Option<&str>,
     error: Option<&str>,
+    success: Option<&str>,
+    withdrawn_amount: Option<i64>,
     base_url: &str,
 ) -> Markup {
     let withdrawable_sats = location.withdrawable_sats();
@@ -44,7 +46,28 @@ pub fn location_detail(
             // Error message
             @if let Some(error_msg) = error {
                 div class="alert-brutal orange mb-6" {
-                    p class="font-bold" { "⚠ " (error_msg) }
+                    p class="font-bold" { " " (error_msg) }
+                }
+            }
+
+            // Success message (e.g., after withdrawal)
+            @if success == Some("withdrawn") {
+                div class="mb-6 p-4" style="background: var(--highlight-glow); border: 3px solid var(--highlight);" {
+                    div class="flex items-center gap-3" {
+                        i class="fa-solid fa-check-circle text-2xl text-highlight" {}
+                        div {
+                            p class="font-black text-highlight text-lg" {
+                                "SUCCESS!"
+                            }
+                            p class="text-primary font-bold" {
+                                @if let Some(amount) = withdrawn_amount {
+                                    (amount) " sats sent to your wallet."
+                                } @else {
+                                    "Sats sent to your wallet."
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
