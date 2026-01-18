@@ -334,7 +334,7 @@ pub async fn boltcard_keys(
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
-    let lnurlw_url = format!("{}/api/lnurlw/{}", state.base_url, location.id);
+    let lnurlw_url = format!("{}/withdraw/{}", state.base_url, location.id);
 
     // Handle program action (UID provided)
     if let Some(uid) = &payload.uid {
