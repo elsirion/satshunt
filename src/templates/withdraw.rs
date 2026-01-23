@@ -3,7 +3,7 @@ use maud::{html, Markup, PreEscaped};
 
 /// Render the withdrawal page with multiple withdrawal options.
 ///
-/// The page has three tabs: LN Address, WebLN, and Paste Invoice.
+/// The page has three tabs: LN Address, LNURL, and Paste Invoice.
 /// The SUN parameters (picc_data and cmac) are passed to each API call
 /// for counter verification.
 pub fn withdraw(
@@ -68,15 +68,15 @@ pub fn withdraw(
 
                     // Tab navigation
                     div class="flex gap-2 mt-6 mb-6" {
-                        button id="tab-ln-address" onclick="switchTab('ln-address')"
+                        button id="tab-lnurl" onclick="switchTab('lnurl')"
                             class="btn-brutal-fill flex-1" style="background: var(--highlight); border-color: var(--highlight);" {
+                            i class="fa-solid fa-link mr-2" {}
+                            "LNURL"
+                        }
+                        button id="tab-ln-address" onclick="switchTab('ln-address')"
+                            class="btn-brutal flex-1" {
                             i class="fa-solid fa-at mr-2" {}
                             "LN ADDRESS"
-                        }
-                        button id="tab-webln" onclick="switchTab('webln')"
-                            class="btn-brutal flex-1" {
-                            i class="fa-solid fa-bolt mr-2" {}
-                            "WEBLN"
                         }
                         button id="tab-invoice" onclick="switchTab('invoice')"
                             class="btn-brutal flex-1" {
@@ -85,8 +85,27 @@ pub fn withdraw(
                         }
                     }
 
+                    // Tab content: LNURL (default)
+                    div id="content-lnurl" class="tab-content" {
+                        div class="p-4" style="background: var(--bg-tertiary); border: 2px solid var(--accent-muted);" {
+                            p class="text-secondary font-bold mb-4" {
+                                "Use LNURL to withdraw " (withdrawable_sats) " sats with any Lightning wallet."
+                            }
+                            div class="space-y-3" {
+                                a id="lnurl-link" href="#"
+                                    class="btn-brutal-fill w-full block text-center" style="background: var(--highlight); border-color: var(--highlight); text-decoration: none;" {
+                                    i class="fa-solid fa-external-link-alt mr-2" {}
+                                    "OPEN IN WALLET"
+                                }
+                                div class="text-xs text-muted mt-2 font-bold text-center" {
+                                    "Works with any LNURL-compatible wallet (Zeus, Phoenix, Breez, etc.)"
+                                }
+                            }
+                        }
+                    }
+
                     // Tab content: LN Address
-                    div id="content-ln-address" class="tab-content" {
+                    div id="content-ln-address" class="tab-content hidden" {
                         div class="p-4" style="background: var(--bg-tertiary); border: 2px solid var(--accent-muted);" {
                             p class="text-secondary font-bold mb-4" {
                                 "Enter your Lightning Address to receive " (withdrawable_sats) " sats."
@@ -107,45 +126,6 @@ pub fn withdraw(
                                     class="btn-brutal-fill w-full" style="background: var(--highlight); border-color: var(--highlight);" {
                                     i class="fa-solid fa-paper-plane mr-2" {}
                                     "WITHDRAW " (withdrawable_sats) " SATS"
-                                }
-                            }
-                        }
-                    }
-
-                    // Tab content: WebLN
-                    div id="content-webln" class="tab-content hidden" {
-                        div class="p-4" style="background: var(--bg-tertiary); border: 2px solid var(--accent-muted);" {
-                            div id="webln-available" {
-                                p class="text-secondary font-bold mb-4" {
-                                    "Connect your browser wallet to receive " (withdrawable_sats) " sats."
-                                }
-                                button type="button" onclick="withdrawWebLN()"
-                                    id="btn-webln"
-                                    class="btn-brutal-fill w-full" style="background: var(--highlight); border-color: var(--highlight);" {
-                                    i class="fa-solid fa-bolt mr-2" {}
-                                    "CONNECT WALLET & WITHDRAW"
-                                }
-                                div class="text-xs text-muted mt-3 font-bold" {
-                                    "Requires a WebLN-compatible wallet like "
-                                    a href="https://getalby.com" target="_blank" class="text-highlight" style="border-bottom: 1px solid var(--highlight);" { "Alby" }
-                                    " browser extension."
-                                }
-                            }
-                            div id="webln-unavailable" class="hidden text-center" {
-                                p class="text-muted font-bold mb-4" {
-                                    i class="fa-solid fa-exclamation-triangle mr-2" {}
-                                    "WebLN not detected in your browser."
-                                }
-                                p class="text-sm text-muted" {
-                                    "Install a WebLN wallet extension like "
-                                    a href="https://getalby.com" target="_blank" class="text-highlight" style="border-bottom: 1px solid var(--highlight);" { "Alby" }
-                                    " to use this feature."
-                                }
-                                div class="mt-4" {
-                                    button type="button" onclick="switchTab('ln-address')"
-                                        class="btn-brutal" {
-                                        "USE LN ADDRESS INSTEAD"
-                                    }
                                 }
                             }
                         }
@@ -234,7 +214,7 @@ pub fn withdraw(
                 document.getElementById('content-' + tabName).classList.remove('hidden');
 
                 // Update tab button styles
-                ['ln-address', 'webln', 'invoice'].forEach(name => {{
+                ['lnurl', 'ln-address', 'invoice'].forEach(name => {{
                     const btn = document.getElementById('tab-' + name);
                     if (name === tabName) {{
                         btn.className = 'btn-brutal-fill flex-1';
@@ -248,11 +228,89 @@ pub fn withdraw(
                 }});
             }}
 
-            // Check WebLN availability
-            if (typeof window.webln === 'undefined') {{
-                document.getElementById('webln-available').classList.add('hidden');
-                document.getElementById('webln-unavailable').classList.remove('hidden');
+            // Bech32 encoding for LNURL
+            const CHARSET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
+
+            function bech32Polymod(values) {{
+                const GEN = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3];
+                let chk = 1;
+                for (const v of values) {{
+                    const b = chk >> 25;
+                    chk = ((chk & 0x1ffffff) << 5) ^ v;
+                    for (let i = 0; i < 5; i++) {{
+                        if ((b >> i) & 1) {{
+                            chk ^= GEN[i];
+                        }}
+                    }}
+                }}
+                return chk;
             }}
+
+            function bech32HrpExpand(hrp) {{
+                const ret = [];
+                for (const c of hrp) {{
+                    ret.push(c.charCodeAt(0) >> 5);
+                }}
+                ret.push(0);
+                for (const c of hrp) {{
+                    ret.push(c.charCodeAt(0) & 31);
+                }}
+                return ret;
+            }}
+
+            function bech32CreateChecksum(hrp, data) {{
+                const values = bech32HrpExpand(hrp).concat(data).concat([0, 0, 0, 0, 0, 0]);
+                const polymod = bech32Polymod(values) ^ 1;
+                const ret = [];
+                for (let i = 0; i < 6; i++) {{
+                    ret.push((polymod >> (5 * (5 - i))) & 31);
+                }}
+                return ret;
+            }}
+
+            function bech32Encode(hrp, data) {{
+                const combined = data.concat(bech32CreateChecksum(hrp, data));
+                let ret = hrp + '1';
+                for (const d of combined) {{
+                    ret += CHARSET[d];
+                }}
+                return ret;
+            }}
+
+            function convertBits(data, fromBits, toBits, pad) {{
+                let acc = 0;
+                let bits = 0;
+                const ret = [];
+                const maxv = (1 << toBits) - 1;
+                for (const value of data) {{
+                    acc = (acc << fromBits) | value;
+                    bits += fromBits;
+                    while (bits >= toBits) {{
+                        bits -= toBits;
+                        ret.push((acc >> bits) & maxv);
+                    }}
+                }}
+                if (pad) {{
+                    if (bits > 0) {{
+                        ret.push((acc << (toBits - bits)) & maxv);
+                    }}
+                }}
+                return ret;
+            }}
+
+            function urlToLnurl(url) {{
+                const data = new TextEncoder().encode(url);
+                const converted = convertBits(Array.from(data), 8, 5, true);
+                return bech32Encode('lnurl', converted).toUpperCase();
+            }}
+
+            // Generate LNURL on page load
+            (function() {{
+                const lnurlApiUrl = `/api/lnurlw/${{locationId}}?p=${{encodeURIComponent(piccData)}}&c=${{encodeURIComponent(cmac)}}`;
+                const fullUrl = window.location.origin + lnurlApiUrl;
+                const lnurlString = urlToLnurl(fullUrl);
+                document.getElementById('lnurl-link').href = 'lightning:' + lnurlString;
+            }})()
 
             function showProcessing() {{
                 document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
@@ -309,49 +367,6 @@ pub fn withdraw(
                 }}
             }}
 
-            async function withdrawWebLN() {{
-                if (typeof window.webln === 'undefined') {{
-                    showError('WebLN not available. Please install Alby or similar.');
-                    return;
-                }}
-
-                showProcessing();
-
-                try {{
-                    // Enable WebLN
-                    await window.webln.enable();
-
-                    // Request invoice from wallet
-                    const invoiceRequest = await window.webln.makeInvoice({{
-                        amount: withdrawableSats,
-                        defaultMemo: 'SatsHunt withdrawal from {}'
-                    }});
-
-                    const invoice = invoiceRequest.paymentRequest;
-
-                    // Submit invoice to our API
-                    const response = await fetch(`/api/withdraw/${{locationId}}/invoice?picc_data=${{encodeURIComponent(piccData)}}&cmac=${{encodeURIComponent(cmac)}}`, {{
-                        method: 'POST',
-                        headers: {{ 'Content-Type': 'application/json' }},
-                        body: JSON.stringify({{ invoice: invoice }})
-                    }});
-
-                    const result = await response.json();
-
-                    if (result.success) {{
-                        window.location.href = result.redirect_url;
-                    }} else {{
-                        showError(result.error || 'Withdrawal failed. Please try again.');
-                    }}
-                }} catch (err) {{
-                    if (err.message && err.message.includes('User rejected')) {{
-                        showError('Wallet connection was rejected.');
-                    }} else {{
-                        showError('WebLN error: ' + (err.message || 'Unknown error'));
-                    }}
-                }}
-            }}
-
             async function withdrawInvoice() {{
                 const invoice = document.getElementById('invoice').value.trim();
                 if (!invoice) {{
@@ -394,8 +409,7 @@ pub fn withdraw(
             location.id,
             picc_data,
             cmac,
-            withdrawable_sats,
-            location.name.replace("'", "\\'")
+            withdrawable_sats
         )))
     }
 }

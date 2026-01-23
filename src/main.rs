@@ -145,6 +145,12 @@ async fn main() -> Result<()> {
             "/api/withdraw/:location_id/invoice",
             post(handlers::withdraw_invoice),
         )
+        // LNURL-withdraw endpoints (LUD-03)
+        .route("/api/lnurlw/:location_id", get(handlers::lnurlw_request))
+        .route(
+            "/api/lnurlw/:location_id/callback",
+            get(handlers::lnurlw_callback),
+        )
         // Boltcard NFC programming endpoint
         .route("/api/boltcard/:write_token", post(handlers::boltcard_keys))
         // Delete location endpoint (non-active only)

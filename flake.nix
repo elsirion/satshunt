@@ -7,8 +7,16 @@
     flake-utils.url = "github:numtide/flake-utils";
   };
 
-  outputs = { self, nixpkgs, rust-overlay, flake-utils, ... }:
-    flake-utils.lib.eachSystem [ "x86_64-linux" "aarch64-linux" ] (system:
+  outputs =
+    {
+      self,
+      nixpkgs,
+      rust-overlay,
+      flake-utils,
+      ...
+    }:
+    flake-utils.lib.eachSystem [ "x86_64-linux" "aarch64-linux" ] (
+      system:
       let
         overlays = [ (import rust-overlay) ];
         pkgs = import nixpkgs {
@@ -18,7 +26,10 @@
         lib = nixpkgs.lib;
 
         rustToolchain = pkgs.rust-bin.stable.latest.default.override {
-          extensions = [ "rust-src" "rust-analyzer" ];
+          extensions = [
+            "rust-src"
+            "rust-analyzer"
+          ];
         };
 
         build_arch_underscores =
@@ -107,12 +118,14 @@
             llvmPackages.libcxxClang
             rustAnalyzerMcp
             openssl
+            mold
           ];
 
           LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
           RUSTFMT = "${pkgs.rust-bin.nightly.latest.rustfmt}/bin/rustfmt";
-          "ROCKSDB_${build_arch_underscores}_STATIC" = "true";
-          "ROCKSDB_${build_arch_underscores}_LIB_DIR" = "${rocksdb}/lib/";
+          "ROCKSDB_STATIC" = "true";
+          "ROCKSDB_LIB_DIR" = "${rocksdb}/lib/";
         };
-      });
+      }
+    );
 }

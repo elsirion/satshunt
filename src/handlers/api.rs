@@ -1175,6 +1175,192 @@ pub async fn withdraw_ln_address(
     )))
 }
 
+// ============================================================================
+// LNURL-withdraw Endpoints (LUD-03)
+// ============================================================================
+
+/// LNURL-withdraw response (LUD-03)
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LnurlWithdrawResponse {
+    pub tag: String,
+    pub callback: String,
+    pub k1: String,
+    pub default_description: String,
+    pub min_withdrawable: i64,
+    pub max_withdrawable: i64,
+}
+
+/// LNURL-withdraw callback response
+#[derive(Debug, Serialize)]
+pub struct LnurlCallbackResponse {
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+impl LnurlCallbackResponse {
+    fn ok() -> Self {
+        Self {
+            status: "OK".to_string(),
+            reason: None,
+        }
+    }
+
+    fn error(reason: impl Into<String>) -> Self {
+        Self {
+            status: "ERROR".to_string(),
+            reason: Some(reason.into()),
+        }
+    }
+}
+
+/// LNURL-withdraw initial request (LUD-03)
+///
+/// GET /api/lnurlw/{location_id}?picc_data={}&cmac={}
+///
+/// Returns the LNURL-withdraw parameters for wallet display.
+pub async fn lnurlw_request(
+    State(state): State<Arc<AppState>>,
+    Path(location_id): Path<String>,
+    Query(sun_params): Query<SunParams>,
+) -> Result<Json<LnurlWithdrawResponse>, (StatusCode, Json<LnurlCallbackResponse>)> {
+    tracing::info!("LNURL-withdraw request for location {}", location_id);
+
+    // Verify SUN and get withdrawal info
+    let (location, _nfc_card, _counter, withdrawable_msats) =
+        match verify_and_prepare_withdrawal(&state, &location_id, &sun_params).await {
+            Ok(result) => result,
+            Err(response) => {
+                let error_msg = response
+                    .error
+                    .unwrap_or_else(|| "Unknown error".to_string());
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(LnurlCallbackResponse::error(error_msg)),
+                ));
+            }
+        };
+
+    // Build callback URL with SUN params preserved
+    let callback = format!(
+        "{}/api/lnurlw/{}/callback?p={}&c={}",
+        state.base_url,
+        location_id,
+        urlencoding::encode(&sun_params.p),
+        urlencoding::encode(&sun_params.c)
+    );
+
+    // k1 is a unique identifier for this withdraw request
+    // We use a combination of location_id and counter for uniqueness
+    let k1 = format!("{}:{}", location_id, sun_params.p);
+
+    Ok(Json(LnurlWithdrawResponse {
+        tag: "withdrawRequest".to_string(),
+        callback,
+        k1,
+        default_description: format!("Withdraw from SatsHunt location: {}", location.name),
+        min_withdrawable: withdrawable_msats,
+        max_withdrawable: withdrawable_msats,
+    }))
+}
+
+/// Query parameters for LNURL-withdraw callback
+#[derive(Debug, Deserialize)]
+pub struct LnurlCallbackParams {
+    /// NTAG424 encrypted picc_data
+    pub p: String,
+    /// NTAG424 CMAC signature
+    pub c: String,
+    /// k1 from initial request (for verification)
+    pub k1: String,
+    /// BOLT11 invoice from wallet
+    pub pr: String,
+}
+
+/// LNURL-withdraw callback (LUD-03)
+///
+/// GET /api/lnurlw/{location_id}/callback?p={}&c={}&k1={}&pr={}
+///
+/// Called by wallet with the BOLT11 invoice to pay.
+pub async fn lnurlw_callback(
+    State(state): State<Arc<AppState>>,
+    Path(location_id): Path<String>,
+    Query(params): Query<LnurlCallbackParams>,
+) -> Result<Json<LnurlCallbackResponse>, (StatusCode, Json<LnurlCallbackResponse>)> {
+    tracing::info!("LNURL-withdraw callback for location {}", location_id);
+
+    let sun_params = SunParams {
+        p: params.p,
+        c: params.c,
+    };
+
+    // Verify SUN and get withdrawal info
+    let (location, nfc_card, counter, withdrawable_msats) =
+        match verify_and_prepare_withdrawal(&state, &location_id, &sun_params).await {
+            Ok(result) => result,
+            Err(response) => {
+                let error_msg = response
+                    .error
+                    .unwrap_or_else(|| "Unknown error".to_string());
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(LnurlCallbackResponse::error(error_msg)),
+                ));
+            }
+        };
+
+    let withdrawable_sats = withdrawable_msats / 1000;
+
+    // Basic invoice validation
+    let invoice = params.pr.trim();
+    if !invoice.to_lowercase().starts_with("lnbc") {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(LnurlCallbackResponse::error(
+                "Invalid invoice format. Must be a valid Lightning invoice.",
+            )),
+        ));
+    }
+
+    // Pay the invoice
+    if let Err(e) = state.lightning.pay_invoice(invoice).await {
+        tracing::error!("Failed to pay invoice: {}", e);
+        return Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(LnurlCallbackResponse::error(
+                "Payment failed. Please try again.",
+            )),
+        ));
+    }
+
+    // Finalize the withdrawal
+    finalize_withdrawal(
+        &state,
+        &location_id,
+        &nfc_card.location_id,
+        counter,
+        withdrawable_msats,
+    )
+    .await
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(LnurlCallbackResponse::error(
+                "Failed to finalize withdrawal",
+            )),
+        )
+    })?;
+
+    tracing::info!(
+        "Successful LNURL-withdraw from {}: {} sats",
+        location.name,
+        withdrawable_sats
+    );
+
+    Ok(Json(LnurlCallbackResponse::ok()))
+}
+
 /// Withdraw via pasted BOLT11 invoice
 ///
 /// POST /api/withdraw/{location_id}/invoice?picc_data={}&cmac={}
