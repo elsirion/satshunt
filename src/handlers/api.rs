@@ -1052,45 +1052,12 @@ async fn verify_and_prepare_withdrawal(
     Ok((location, nfc_card, counter, withdrawable_msats))
 }
 
-/// Finalize a successful withdrawal
-async fn finalize_withdrawal(
-    state: &AppState,
-    location_id: &str,
-    nfc_card_location_id: &str,
-    new_counter: u32,
-    amount_msats: i64,
-) -> Result<(), StatusCode> {
-    // Update NFC card counter
-    state
-        .db
-        .update_nfc_card_counter(nfc_card_location_id, new_counter as i64)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to update NFC card counter: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
-
-    // Update location balance to 0
-    state
-        .db
-        .update_location_msats(location_id, 0)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to update location balance: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
-
-    // Record the scan
-    state
-        .db
-        .record_scan(location_id, amount_msats)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to record scan: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
-
-    Ok(())
+/// Record a successful withdrawal scan (called after payment succeeds)
+async fn record_withdrawal(state: &AppState, location_id: &str, amount_msats: i64) {
+    // Record the scan - this is best-effort, payment already succeeded
+    if let Err(e) = state.db.record_scan(location_id, amount_msats).await {
+        tracing::error!("Failed to record scan: {}", e);
+    }
 }
 
 /// Withdraw via Lightning Address
@@ -1110,7 +1077,7 @@ pub async fn withdraw_ln_address(
     );
 
     // Verify SUN and get withdrawal info
-    let (location, nfc_card, counter, withdrawable_msats) =
+    let (location, _nfc_card, counter, withdrawable_msats) =
         match verify_and_prepare_withdrawal(&state, &location_id, &sun_params).await {
             Ok(result) => result,
             Err(response) => return Ok(Json(response)),
@@ -1118,7 +1085,8 @@ pub async fn withdraw_ln_address(
 
     let withdrawable_sats = withdrawable_msats / 1000;
 
-    // Resolve LN address and get invoice
+    // Resolve LN address and get invoice (do this before claiming to avoid
+    // claiming if the LN address is invalid)
     let invoice =
         match lnurl::get_invoice_for_ln_address(&payload.ln_address, withdrawable_msats).await {
             Ok(inv) => inv,
@@ -1144,35 +1112,50 @@ pub async fn withdraw_ln_address(
             }
         };
 
+    // Atomically claim the withdrawal (updates counter and zeros balance)
+    // This prevents double-spending even if the same scan is used multiple times
+    let claimed_msats = match state
+        .db
+        .claim_withdrawal(&location_id, counter as i64)
+        .await
+    {
+        Ok(Some(msats)) => msats,
+        Ok(None) => {
+            return Ok(Json(WithdrawResponse::error(
+                "This scan has already been used. Please scan the sticker again.",
+            )));
+        }
+        Err(e) => {
+            tracing::error!("Failed to claim withdrawal: {}", e);
+            return Ok(Json(WithdrawResponse::error(
+                "Failed to process withdrawal. Please try again.",
+            )));
+        }
+    };
+
+    let claimed_sats = claimed_msats / 1000;
+
     // Pay the invoice
     if let Err(e) = state.lightning.pay_invoice(&invoice).await {
         tracing::error!("Failed to pay invoice: {}", e);
+        // Note: The balance was already claimed, so the user will need to scan again.
+        // This is intentional to prevent double-spending attempts.
         return Ok(Json(WithdrawResponse::error(
-            "Payment failed. Please try again.",
+            "Payment failed. Please scan the sticker again to retry.",
         )));
     }
 
-    // Finalize the withdrawal
-    finalize_withdrawal(
-        &state,
-        &location_id,
-        &nfc_card.location_id,
-        counter,
-        withdrawable_msats,
-    )
-    .await?;
+    // Record the successful withdrawal
+    record_withdrawal(&state, &location_id, claimed_msats).await;
 
     tracing::info!(
         "Successful LN address withdrawal from {}: {} sats to {}",
         location.name,
-        withdrawable_sats,
+        claimed_sats,
         payload.ln_address
     );
 
-    Ok(Json(WithdrawResponse::success(
-        withdrawable_sats,
-        &location_id,
-    )))
+    Ok(Json(WithdrawResponse::success(claimed_sats, &location_id)))
 }
 
 // ============================================================================
@@ -1296,7 +1279,7 @@ pub async fn lnurlw_callback(
     };
 
     // Verify SUN and get withdrawal info
-    let (location, nfc_card, counter, withdrawable_msats) =
+    let (location, _nfc_card, counter, _withdrawable_msats) =
         match verify_and_prepare_withdrawal(&state, &location_id, &sun_params).await {
             Ok(result) => result,
             Err(response) => {
@@ -1310,8 +1293,6 @@ pub async fn lnurlw_callback(
             }
         };
 
-    let withdrawable_sats = withdrawable_msats / 1000;
-
     // Basic invoice validation
     let invoice = params.pr.trim();
     if !invoice.to_lowercase().starts_with("lnbc") {
@@ -1323,39 +1304,55 @@ pub async fn lnurlw_callback(
         ));
     }
 
+    // Atomically claim the withdrawal (updates counter and zeros balance)
+    // This prevents double-spending even if the same scan is used multiple times
+    let claimed_msats = match state
+        .db
+        .claim_withdrawal(&location_id, counter as i64)
+        .await
+    {
+        Ok(Some(msats)) => msats,
+        Ok(None) => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(LnurlCallbackResponse::error(
+                    "This scan has already been used. Please scan the sticker again.",
+                )),
+            ));
+        }
+        Err(e) => {
+            tracing::error!("Failed to claim withdrawal: {}", e);
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(LnurlCallbackResponse::error(
+                    "Failed to process withdrawal. Please try again.",
+                )),
+            ));
+        }
+    };
+
+    let claimed_sats = claimed_msats / 1000;
+
     // Pay the invoice
     if let Err(e) = state.lightning.pay_invoice(invoice).await {
         tracing::error!("Failed to pay invoice: {}", e);
+        // Note: The balance was already claimed, so the user will need to scan again.
+        // This is intentional to prevent double-spending attempts.
         return Err((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(LnurlCallbackResponse::error(
-                "Payment failed. Please try again.",
+                "Payment failed. Please scan the sticker again to retry.",
             )),
         ));
     }
 
-    // Finalize the withdrawal
-    finalize_withdrawal(
-        &state,
-        &location_id,
-        &nfc_card.location_id,
-        counter,
-        withdrawable_msats,
-    )
-    .await
-    .map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(LnurlCallbackResponse::error(
-                "Failed to finalize withdrawal",
-            )),
-        )
-    })?;
+    // Record the successful withdrawal
+    record_withdrawal(&state, &location_id, claimed_msats).await;
 
     tracing::info!(
         "Successful LNURL-withdraw from {}: {} sats",
         location.name,
-        withdrawable_sats
+        claimed_sats
     );
 
     Ok(Json(LnurlCallbackResponse::ok()))
@@ -1374,13 +1371,11 @@ pub async fn withdraw_invoice(
     tracing::info!("Invoice withdrawal request for location {}", location_id);
 
     // Verify SUN and get withdrawal info
-    let (location, nfc_card, counter, withdrawable_msats) =
+    let (location, _nfc_card, counter, _withdrawable_msats) =
         match verify_and_prepare_withdrawal(&state, &location_id, &sun_params).await {
             Ok(result) => result,
             Err(response) => return Ok(Json(response)),
         };
-
-    let withdrawable_sats = withdrawable_msats / 1000;
 
     // Basic invoice validation
     let invoice = payload.invoice.trim();
@@ -1390,32 +1385,47 @@ pub async fn withdraw_invoice(
         )));
     }
 
+    // Atomically claim the withdrawal (updates counter and zeros balance)
+    // This prevents double-spending even if the same scan is used multiple times
+    let claimed_msats = match state
+        .db
+        .claim_withdrawal(&location_id, counter as i64)
+        .await
+    {
+        Ok(Some(msats)) => msats,
+        Ok(None) => {
+            return Ok(Json(WithdrawResponse::error(
+                "This scan has already been used. Please scan the sticker again.",
+            )));
+        }
+        Err(e) => {
+            tracing::error!("Failed to claim withdrawal: {}", e);
+            return Ok(Json(WithdrawResponse::error(
+                "Failed to process withdrawal. Please try again.",
+            )));
+        }
+    };
+
+    let claimed_sats = claimed_msats / 1000;
+
     // Pay the invoice
     if let Err(e) = state.lightning.pay_invoice(invoice).await {
         tracing::error!("Failed to pay invoice: {}", e);
+        // Note: The balance was already claimed, so the user will need to scan again.
+        // This is intentional to prevent double-spending attempts.
         return Ok(Json(WithdrawResponse::error(
-            "Payment failed. Please check the invoice and try again.",
+            "Payment failed. Please scan the sticker again to retry.",
         )));
     }
 
-    // Finalize the withdrawal
-    finalize_withdrawal(
-        &state,
-        &location_id,
-        &nfc_card.location_id,
-        counter,
-        withdrawable_msats,
-    )
-    .await?;
+    // Record the successful withdrawal
+    record_withdrawal(&state, &location_id, claimed_msats).await;
 
     tracing::info!(
         "Successful invoice withdrawal from {}: {} sats",
         location.name,
-        withdrawable_sats
+        claimed_sats
     );
 
-    Ok(Json(WithdrawResponse::success(
-        withdrawable_sats,
-        &location_id,
-    )))
+    Ok(Json(WithdrawResponse::success(claimed_sats, &location_id)))
 }

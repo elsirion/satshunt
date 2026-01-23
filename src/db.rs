@@ -448,17 +448,79 @@ impl Database {
             .map_err(Into::into)
     }
 
-    /// Update NFC card counter - will be used for replay protection when processing NFC payments
-    #[allow(dead_code)]
+    /// Atomically claim a withdrawal by updating the counter and zeroing the balance.
+    ///
+    /// This prevents double-spending by checking the counter hasn't been used yet
+    /// and updating it in a single transaction. Returns the claimed amount in msats
+    /// if successful, or None if the counter was already claimed.
+    pub async fn claim_withdrawal(
+        &self,
+        location_id: &str,
+        new_counter: i64,
+    ) -> Result<Option<i64>> {
+        let mut tx = self.pool.begin().await?;
+
+        // Check if counter is still valid (not already claimed)
+        let card: Option<NfcCard> = sqlx::query_as("SELECT * FROM nfc_cards WHERE location_id = ?")
+            .bind(location_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+
+        let card = match card {
+            Some(c) => c,
+            None => return Ok(None),
+        };
+
+        // If counter has already been claimed, reject
+        if new_counter <= card.counter {
+            return Ok(None);
+        }
+
+        // Get the current balance
+        let location: Option<Location> = sqlx::query_as("SELECT * FROM locations WHERE id = ?")
+            .bind(location_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+
+        let location = match location {
+            Some(l) => l,
+            None => return Ok(None),
+        };
+
+        let withdrawable_msats = location.withdrawable_msats();
+        if withdrawable_msats <= 0 {
+            return Ok(None);
+        }
+
+        // Update the counter
+        sqlx::query("UPDATE nfc_cards SET counter = ?, last_used_at = ? WHERE location_id = ?")
+            .bind(new_counter)
+            .bind(Utc::now())
+            .bind(location_id)
+            .execute(&mut *tx)
+            .await?;
+
+        // Zero the balance
+        sqlx::query("UPDATE locations SET current_msats = 0 WHERE id = ?")
+            .bind(location_id)
+            .execute(&mut *tx)
+            .await?;
+
+        tx.commit().await?;
+
+        Ok(Some(withdrawable_msats))
+    }
+
+    /// Update NFC card counter (for non-withdrawal scans like activation)
     pub async fn update_nfc_card_counter(
         &self,
-        uid: &str,
+        location_id: &str,
         counter: i64,
     ) -> Result<SqliteQueryResult> {
-        sqlx::query("UPDATE nfc_cards SET counter = ?, last_used_at = ? WHERE uid = ?")
+        sqlx::query("UPDATE nfc_cards SET counter = ?, last_used_at = ? WHERE location_id = ?")
             .bind(counter)
             .bind(Utc::now())
-            .bind(uid)
+            .bind(location_id)
             .execute(&self.pool)
             .await
             .map_err(Into::into)
