@@ -70,6 +70,10 @@ async fn main() -> Result<()> {
 
     tracing::info!("Donation service started");
 
+    // Get cookie key for signing private cookies (stored in DB, generated on first use)
+    let cookie_secret = db.get_or_create_cookie_secret().await?;
+    let cookie_key = satshunt::auth::Key::from(&cookie_secret);
+
     // Create app state
     let app_state = Arc::new(AppState {
         db: (*db).clone(),
@@ -78,6 +82,7 @@ async fn main() -> Result<()> {
         base_url: base_url.clone(),
         max_sats_per_location: config.max_sats_per_location,
         donation_sender,
+        cookie_key,
     });
 
     // Start refill service
@@ -112,6 +117,7 @@ async fn main() -> Result<()> {
         .route("/setup/:write_token", get(handlers::nfc_setup_page))
         .route("/donate", get(handlers::donate_page))
         .route("/withdraw/:location_id", get(handlers::withdraw_page))
+        .route("/wallet", get(handlers::wallet_page))
         .route("/login", get(handlers::login_page).post(handlers::login))
         .route(
             "/register",
@@ -136,7 +142,9 @@ async fn main() -> Result<()> {
             get(handlers::wait_for_donation),
         )
         .route("/api/refill/trigger", post(handlers::manual_refill))
-        // Withdrawal API endpoints
+        // Custodial collection endpoint
+        .route("/api/collect/:location_id", post(handlers::collect_sats))
+        // Withdrawal API endpoints (legacy Lightning)
         .route(
             "/api/withdraw/:location_id/ln-address",
             post(handlers::withdraw_ln_address),

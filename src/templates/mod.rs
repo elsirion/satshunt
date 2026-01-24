@@ -1,3 +1,4 @@
+pub mod collect;
 pub mod donate;
 pub mod home;
 pub mod layout;
@@ -7,8 +8,10 @@ pub mod map;
 pub mod new_location;
 pub mod profile;
 pub mod register;
+pub mod wallet;
 pub mod withdraw;
 
+pub use collect::{collect, CollectParams};
 pub use donate::donate;
 pub use home::home;
 pub use layout::{base, base_with_user};
@@ -18,4 +21,5 @@ pub use map::map;
 pub use new_location::new_location;
 pub use profile::profile;
 pub use register::register;
+pub use wallet::wallet;
 pub use withdraw::withdraw;

@@ -1,5 +1,5 @@
 use crate::{
-    auth::AuthUser,
+    auth::{AuthUser, CookieUser, Key, RequireRegistered},
     db::Database,
     donation::NewDonation,
     lightning::{Lightning, LightningService},
@@ -8,8 +8,9 @@ use crate::{
 use axum::{
     extract::{Multipart, Path, Query, State},
     http::StatusCode,
-    response::Json,
+    response::{IntoResponse, Json},
 };
+use axum_extra::extract::cookie::PrivateCookieJar;
 use chrono::Utc;
 use image::GenericImageView;
 use serde::{Deserialize, Serialize};
@@ -33,13 +34,15 @@ pub struct AppState {
     pub base_url: String,
     pub max_sats_per_location: i64,
     pub donation_sender: mpsc::UnboundedSender<NewDonation>,
+    /// Key for signing private cookies
+    pub cookie_key: Key,
 }
 
 pub async fn create_location(
-    auth: AuthUser,
+    auth: RequireRegistered,
     State(state): State<Arc<AppState>>,
     Json(payload): Json<CreateLocationRequest>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
+) -> Result<impl IntoResponse, StatusCode> {
     tracing::info!(
         "Creating location: {} at ({}, {}) with max {} sats",
         payload.name,
@@ -1053,9 +1056,10 @@ async fn verify_and_prepare_withdrawal(
 }
 
 /// Record a successful withdrawal scan (called after payment succeeds)
+/// Note: Legacy withdrawal methods don't track user_id, so we pass None
 async fn record_withdrawal(state: &AppState, location_id: &str, amount_msats: i64) {
     // Record the scan - this is best-effort, payment already succeeded
-    if let Err(e) = state.db.record_scan(location_id, amount_msats).await {
+    if let Err(e) = state.db.record_scan(location_id, amount_msats, None).await {
         tracing::error!("Failed to record scan: {}", e);
     }
 }
@@ -1428,4 +1432,169 @@ pub async fn withdraw_invoice(
     );
 
     Ok(Json(WithdrawResponse::success(claimed_sats, &location_id)))
+}
+
+// ============================================================================
+// Custodial Wallet Collection Endpoint
+// ============================================================================
+
+/// Response for collection endpoint
+#[derive(Debug, Serialize)]
+pub struct CollectResponse {
+    pub success: bool,
+    pub collected_sats: i64,
+    pub new_balance_sats: i64,
+    pub location_name: String,
+    /// User ID to store in localStorage as backup
+    pub user_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+impl CollectResponse {
+    fn success(
+        collected_sats: i64,
+        new_balance_sats: i64,
+        location_name: String,
+        user_id: String,
+    ) -> Self {
+        Self {
+            success: true,
+            collected_sats,
+            new_balance_sats,
+            location_name,
+            user_id,
+            error: None,
+        }
+    }
+
+    fn error(message: impl Into<String>) -> Self {
+        Self {
+            success: false,
+            collected_sats: 0,
+            new_balance_sats: 0,
+            location_name: String::new(),
+            user_id: String::new(),
+            error: Some(message.into()),
+        }
+    }
+}
+
+/// Collect sats from a location into user's custodial balance
+///
+/// POST /api/collect/{location_id}?p={picc_data}&c={cmac}
+///
+/// This is the primary endpoint for the custodial wallet system.
+/// Users collect sats into their balance instead of receiving immediate Lightning payments.
+pub async fn collect_sats(
+    State(state): State<Arc<AppState>>,
+    Path(location_id): Path<String>,
+    Query(sun_params): Query<SunParams>,
+    user: CookieUser,
+) -> impl IntoResponse {
+    tracing::info!(
+        "Collection request for location {} by user {} (kind: {:?})",
+        location_id,
+        user.user_id,
+        user.kind
+    );
+
+    // Helper to build error response with cookie jar
+    let error_response = |jar: PrivateCookieJar, status: StatusCode, msg: &str| {
+        (jar, (status, Json(CollectResponse::error(msg)))).into_response()
+    };
+
+    // Verify the SUN message
+    let verification =
+        match ntag424::verify_sun_message(&state.db, &location_id, &sun_params.p, &sun_params.c)
+            .await
+        {
+            Ok(v) => v,
+            Err(e) => {
+                let msg = match e {
+                    ntag424::SunError::ReplayDetected { .. } => {
+                        "This scan has already been used. Please scan the sticker again."
+                    }
+                    ntag424::SunError::CmacMismatch => {
+                        "Invalid NFC scan. Please scan the sticker again."
+                    }
+                    ntag424::SunError::UidMismatch { .. } => "Invalid NFC card for this location.",
+                    ntag424::SunError::CardNotFound | ntag424::SunError::CardNotProgrammed => {
+                        "NFC card not configured."
+                    }
+                    _ => {
+                        tracing::error!("SUN verification error: {}", e);
+                        "Verification failed. Please try again."
+                    }
+                };
+                return error_response(user.jar, StatusCode::BAD_REQUEST, msg);
+            }
+        };
+
+    let location = verification.location;
+    let counter = verification.counter;
+
+    // Check if location has sats available
+    if location.current_msats <= 0 {
+        return error_response(
+            user.jar,
+            StatusCode::CONFLICT,
+            "No sats available at this location. Check back later!",
+        );
+    }
+
+    // Atomically claim collection (creates user if needed, updates counter, zeros balance)
+    let collected_msats = match state
+        .db
+        .claim_collection(&location_id, &user.user_id, counter as i64)
+        .await
+    {
+        Ok(Some(msats)) => msats,
+        Ok(None) => {
+            tracing::warn!("Collection already claimed or no balance");
+            return error_response(
+                user.jar,
+                StatusCode::CONFLICT,
+                "This scan has already been used. Please scan the sticker again.",
+            );
+        }
+        Err(e) => {
+            tracing::error!("Collection failed: {}", e);
+            return error_response(
+                user.jar,
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to process collection. Please try again.",
+            );
+        }
+    };
+
+    let collected_sats = collected_msats / 1000;
+
+    // Get new balance
+    let new_balance_msats = state
+        .db
+        .get_user_balance(&user.user_id)
+        .await
+        .unwrap_or(collected_msats);
+    let new_balance_sats = new_balance_msats / 1000;
+
+    tracing::info!(
+        "User {} collected {} sats from {}, new balance: {} sats",
+        user.user_id,
+        collected_sats,
+        location.name,
+        new_balance_sats
+    );
+
+    // Return response with the cookie jar (handles setting new cookie if needed)
+    (
+        user.jar,
+        Json(CollectResponse::success(
+            collected_sats,
+            new_balance_sats,
+            location.name,
+            user.user_id,
+        )),
+    )
+        .into_response()
 }

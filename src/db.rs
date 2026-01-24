@@ -1,5 +1,6 @@
 use crate::models::{
     AuthMethod, DonationPool, Location, NfcCard, PendingDonation, Photo, Refill, Scan, Stats, User,
+    UserTransaction,
 };
 use anyhow::Result;
 use chrono::Utc;
@@ -313,7 +314,12 @@ impl Database {
     }
 
     // Scan operations
-    pub async fn record_scan(&self, location_id: &str, msats_withdrawn: i64) -> Result<Scan> {
+    pub async fn record_scan(
+        &self,
+        location_id: &str,
+        msats_withdrawn: i64,
+        user_id: Option<&str>,
+    ) -> Result<Scan> {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now();
 
@@ -325,12 +331,13 @@ impl Database {
             .await?;
 
         sqlx::query_as::<_, Scan>(
-            "INSERT INTO scans (id, location_id, msats_withdrawn, scanned_at) VALUES (?, ?, ?, ?) RETURNING *"
+            "INSERT INTO scans (id, location_id, msats_withdrawn, scanned_at, user_id) VALUES (?, ?, ?, ?, ?) RETURNING *"
         )
         .bind(&id)
         .bind(location_id)
         .bind(msats_withdrawn)
         .bind(now)
+        .bind(user_id)
         .fetch_one(&self.pool)
         .await
         .map_err(Into::into)
@@ -645,5 +652,248 @@ impl Database {
         .fetch_all(&self.pool)
         .await
         .map_err(Into::into)
+    }
+
+    // ========================================================================
+    // Anonymous User and Custodial Wallet Operations
+    // ========================================================================
+
+    /// Create an anonymous user (lazy creation on first collection)
+    pub async fn create_anonymous_user(&self, id: &str) -> Result<User> {
+        let now = Utc::now();
+        let auth_method = AuthMethod::Anonymous {};
+        let method_type = auth_method.to_type_string();
+        let method_data = auth_method.to_json()?;
+
+        sqlx::query_as::<_, User>(
+            r#"
+            INSERT INTO users (id, username, email, auth_method, auth_data, created_at)
+            VALUES (?, NULL, NULL, ?, ?, ?)
+            RETURNING *
+            "#,
+        )
+        .bind(id)
+        .bind(method_type)
+        .bind(&method_data)
+        .bind(now)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(Into::into)
+    }
+
+    /// Get or create an anonymous user - used during collection
+    pub async fn get_or_create_anonymous_user(&self, id: &str) -> Result<User> {
+        // Try to get existing user first
+        if let Some(user) = self.get_user_by_id(id).await? {
+            return Ok(user);
+        }
+
+        // Create new anonymous user
+        self.create_anonymous_user(id).await
+    }
+
+    /// Get user's balance (sum of collections - sum of withdrawals)
+    pub async fn get_user_balance(&self, user_id: &str) -> Result<i64> {
+        let result: Option<i64> = sqlx::query_scalar(
+            r#"
+            SELECT COALESCE(
+                SUM(CASE WHEN transaction_type = 'collect' THEN msats ELSE -msats END),
+                0
+            ) FROM user_transactions WHERE user_id = ?
+            "#,
+        )
+        .bind(user_id)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(result.unwrap_or(0))
+    }
+
+    /// Get user's transaction history
+    pub async fn get_user_transactions(
+        &self,
+        user_id: &str,
+        limit: i64,
+    ) -> Result<Vec<UserTransaction>> {
+        sqlx::query_as::<_, UserTransaction>(
+            "SELECT * FROM user_transactions WHERE user_id = ? ORDER BY created_at DESC LIMIT ?",
+        )
+        .bind(user_id)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(Into::into)
+    }
+
+    /// Atomically claim a collection - takes sats from location and credits to user.
+    ///
+    /// This is the core operation for the custodial wallet system. It:
+    /// 1. Verifies the NFC counter hasn't been used (replay protection)
+    /// 2. Creates the anonymous user if they don't exist (lazy creation)
+    /// 3. Zeros the location balance
+    /// 4. Records a collection transaction for the user
+    ///
+    /// Returns the collected amount in msats, or None if the counter was already used.
+    pub async fn claim_collection(
+        &self,
+        location_id: &str,
+        user_id: &str,
+        new_counter: i64,
+    ) -> Result<Option<i64>> {
+        let mut tx = self.pool.begin().await?;
+
+        // Check if counter is still valid (not already claimed)
+        let card: Option<NfcCard> = sqlx::query_as("SELECT * FROM nfc_cards WHERE location_id = ?")
+            .bind(location_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+
+        let card = match card {
+            Some(c) => c,
+            None => return Ok(None),
+        };
+
+        // If counter has already been claimed, reject
+        if new_counter <= card.counter {
+            return Ok(None);
+        }
+
+        // Get the current balance (no fee deduction for custodial collection)
+        let location: Option<Location> = sqlx::query_as("SELECT * FROM locations WHERE id = ?")
+            .bind(location_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+
+        let location = match location {
+            Some(l) => l,
+            None => return Ok(None),
+        };
+
+        let collected_msats = location.current_msats;
+        if collected_msats <= 0 {
+            return Ok(None);
+        }
+
+        let now = Utc::now();
+
+        // Update the counter
+        sqlx::query("UPDATE nfc_cards SET counter = ?, last_used_at = ? WHERE location_id = ?")
+            .bind(new_counter)
+            .bind(now)
+            .bind(location_id)
+            .execute(&mut *tx)
+            .await?;
+
+        // Zero the location balance
+        sqlx::query("UPDATE locations SET current_msats = 0, last_withdraw_at = ? WHERE id = ?")
+            .bind(now)
+            .bind(location_id)
+            .execute(&mut *tx)
+            .await?;
+
+        // Ensure user exists (lazy creation)
+        let user_exists: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE id = ?)")
+                .bind(user_id)
+                .fetch_one(&mut *tx)
+                .await?;
+
+        if !user_exists {
+            sqlx::query(
+                "INSERT INTO users (id, username, email, auth_method, auth_data, created_at) VALUES (?, NULL, NULL, 'anonymous', '{}', ?)"
+            )
+            .bind(user_id)
+            .bind(now)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        // Record the collection transaction
+        let tx_id = Uuid::new_v4().to_string();
+        sqlx::query(
+            "INSERT INTO user_transactions (id, user_id, location_id, msats, transaction_type, created_at) VALUES (?, ?, ?, ?, 'collect', ?)"
+        )
+        .bind(&tx_id)
+        .bind(user_id)
+        .bind(location_id)
+        .bind(collected_msats)
+        .bind(now)
+        .execute(&mut *tx)
+        .await?;
+
+        // Record the scan with user_id
+        let scan_id = Uuid::new_v4().to_string();
+        sqlx::query(
+            "INSERT INTO scans (id, location_id, msats_withdrawn, scanned_at, user_id) VALUES (?, ?, ?, ?, ?)"
+        )
+        .bind(&scan_id)
+        .bind(location_id)
+        .bind(collected_msats)
+        .bind(now)
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+
+        Ok(Some(collected_msats))
+    }
+
+    // Settings operations
+
+    /// Get a setting value by key
+    pub async fn get_setting(&self, key: &str) -> Result<Option<String>> {
+        let result: Option<(String,)> = sqlx::query_as("SELECT value FROM settings WHERE key = ?")
+            .bind(key)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(result.map(|(v,)| v))
+    }
+
+    /// Set a setting value, inserting or updating as needed
+    pub async fn set_setting(&self, key: &str, value: &str) -> Result<()> {
+        let now = Utc::now();
+        sqlx::query(
+            "INSERT INTO settings (key, value, created_at, updated_at) VALUES (?, ?, ?, ?)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+        )
+        .bind(key)
+        .bind(value)
+        .bind(now)
+        .bind(now)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Get or create the cookie secret for private cookie jar.
+    /// Generates a random 64-byte secret on first use (required by axum-extra's Key).
+    pub async fn get_or_create_cookie_secret(&self) -> Result<Vec<u8>> {
+        const KEY: &str = "cookie_secret";
+
+        if let Some(hex_secret) = self.get_setting(KEY).await? {
+            // Decode existing secret from hex
+            let secret = hex::decode(&hex_secret)?;
+            // If we have an old 32-byte secret, regenerate with 64 bytes
+            if secret.len() >= 64 {
+                return Ok(secret);
+            }
+            tracing::warn!(
+                "Cookie secret too short ({}), regenerating with 64 bytes",
+                secret.len()
+            );
+        }
+
+        // Generate new random secret (64 bytes required by axum-extra Key)
+        use rand::{thread_rng, RngCore};
+        let mut secret = vec![0u8; 64];
+        thread_rng().fill_bytes(&mut secret);
+
+        // Store as hex
+        let hex_secret = hex::encode(&secret);
+        self.set_setting(KEY, &hex_secret).await?;
+
+        tracing::info!("Generated new cookie secret (64 bytes)");
+        Ok(secret)
     }
 }

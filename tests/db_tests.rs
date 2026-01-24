@@ -27,7 +27,7 @@ async fn test_create_user() {
         .await
         .unwrap();
 
-    assert_eq!(user.username, "testuser");
+    assert_eq!(user.username, Some("testuser".to_string()));
     assert_eq!(user.email, Some("test@example.com".to_string()));
     assert!(!user.id.is_empty());
 }
@@ -46,7 +46,7 @@ async fn test_get_user_by_username() {
 
     let found = db.get_user_by_username("findme").await.unwrap();
     assert!(found.is_some());
-    assert_eq!(found.unwrap().username, "findme");
+    assert_eq!(found.unwrap().username, Some("findme".to_string()));
 
     let not_found = db.get_user_by_username("nonexistent").await.unwrap();
     assert!(not_found.is_none());
@@ -299,7 +299,7 @@ async fn test_record_scan() {
         .unwrap();
 
     // Record a scan
-    db.record_scan(&location.id, 10000).await.unwrap();
+    db.record_scan(&location.id, 10000, None).await.unwrap();
 
     // Get stats to verify
     let stats = db.get_stats().await.unwrap();

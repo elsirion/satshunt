@@ -1,7 +1,7 @@
 use crate::{
     auth::{
-        hash_password, login_user, logout_user, verify_user_password, AuthUser, LoginRequest,
-        OptionalAuthUser, RegisterRequest,
+        hash_password, remove_user_cookie, set_user_cookie, verify_user_password, CookieUser,
+        LoginRequest, RegisterRequest, RequireRegistered, UserKind,
     },
     handlers::api::AppState,
     models::AuthMethod,
@@ -10,12 +10,11 @@ use crate::{
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
-    response::{Html, IntoResponse, Redirect, Response},
+    response::{Html, IntoResponse, Redirect},
     Form,
 };
 use serde::Deserialize;
 use std::sync::Arc;
-use tower_sessions::Session;
 
 #[derive(Deserialize)]
 pub struct ErrorQuery {
@@ -40,120 +39,93 @@ pub struct WithdrawQuery {
     pub error: Option<String>,
 }
 
-pub async fn home_page(
-    State(state): State<Arc<AppState>>,
-    opt_auth: OptionalAuthUser,
-) -> Result<Html<String>, StatusCode> {
-    let stats = state.db.get_stats().await.map_err(|e| {
-        tracing::error!("Failed to get stats: {}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+/// Helper to get username for navbar from UserKind
+fn get_navbar_username(kind: &UserKind) -> Option<String> {
+    match kind {
+        UserKind::Registered { username } => Some(username.clone()),
+        _ => None,
+    }
+}
 
-    let username = match opt_auth.user_id {
-        Some(user_id) => state
-            .db
-            .get_user_by_id(&user_id)
-            .await
-            .ok()
-            .flatten()
-            .map(|user| user.username),
-        None => None,
+pub async fn home_page(State(state): State<Arc<AppState>>, user: CookieUser) -> impl IntoResponse {
+    let stats = match state.db.get_stats().await {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::error!("Failed to get stats: {}", e);
+            return (user.jar, StatusCode::INTERNAL_SERVER_ERROR).into_response();
+        }
     };
 
+    let username = get_navbar_username(&user.kind);
     let content = templates::home(&stats);
     let page = templates::base_with_user("Home", content, username.as_deref());
 
-    Ok(Html(page.into_string()))
+    (user.jar, Html(page.into_string())).into_response()
 }
 
-pub async fn map_page(
-    State(state): State<Arc<AppState>>,
-    opt_auth: OptionalAuthUser,
-) -> Result<Html<String>, StatusCode> {
-    let locations = state.db.list_active_locations().await.map_err(|e| {
-        tracing::error!("Failed to get active locations: {}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
-
-    let username = match opt_auth.user_id {
-        Some(user_id) => state
-            .db
-            .get_user_by_id(&user_id)
-            .await
-            .ok()
-            .flatten()
-            .map(|user| user.username),
-        None => None,
+pub async fn map_page(State(state): State<Arc<AppState>>, user: CookieUser) -> impl IntoResponse {
+    let locations = match state.db.list_active_locations().await {
+        Ok(l) => l,
+        Err(e) => {
+            tracing::error!("Failed to get active locations: {}", e);
+            return (user.jar, StatusCode::INTERNAL_SERVER_ERROR).into_response();
+        }
     };
 
+    let username = get_navbar_username(&user.kind);
     let content = templates::map(&locations, state.max_sats_per_location);
     let page = templates::base_with_user("Map", content, username.as_deref());
 
-    Ok(Html(page.into_string()))
+    (user.jar, Html(page.into_string())).into_response()
 }
 
-pub async fn new_location_page(
-    State(state): State<Arc<AppState>>,
-    auth: AuthUser,
-) -> Result<Html<String>, StatusCode> {
-    let username = state
-        .db
-        .get_user_by_id(&auth.user_id)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to get user: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?
-        .map(|user| user.username);
-
+pub async fn new_location_page(auth: RequireRegistered) -> impl IntoResponse {
     let content = templates::new_location();
-    let page = templates::base_with_user("Add Location", content, username.as_deref());
-
-    Ok(Html(page.into_string()))
+    let page = templates::base_with_user("Add Location", content, Some(&auth.username));
+    (auth.jar, Html(page.into_string()))
 }
 
 pub async fn location_detail_page(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
     Query(params): Query<LocationDetailQuery>,
-    opt_auth: OptionalAuthUser,
-) -> Result<Html<String>, StatusCode> {
-    let location = state
-        .db
-        .get_location(&id)
-        .await
-        .map_err(|e| {
+    user: CookieUser,
+) -> impl IntoResponse {
+    let location = match state.db.get_location(&id).await {
+        Ok(Some(l)) => l,
+        Ok(None) => return (user.jar, StatusCode::NOT_FOUND).into_response(),
+        Err(e) => {
             tracing::error!("Failed to get location: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?
-        .ok_or(StatusCode::NOT_FOUND)?;
-
-    let photos = state.db.get_photos_for_location(&id).await.map_err(|e| {
-        tracing::error!("Failed to get photos: {}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
-
-    let scans = state.db.get_scans_for_location(&id).await.map_err(|e| {
-        tracing::error!("Failed to get scans: {}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
-
-    let refills = state.db.get_refills_for_location(&id).await.map_err(|e| {
-        tracing::error!("Failed to get refills: {}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
-
-    let current_user_id = opt_auth.user_id.as_deref();
-    let username = match current_user_id {
-        Some(user_id) => state
-            .db
-            .get_user_by_id(user_id)
-            .await
-            .ok()
-            .flatten()
-            .map(|user| user.username),
-        None => None,
+            return (user.jar, StatusCode::INTERNAL_SERVER_ERROR).into_response();
+        }
     };
+
+    let photos = match state.db.get_photos_for_location(&id).await {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::error!("Failed to get photos: {}", e);
+            return (user.jar, StatusCode::INTERNAL_SERVER_ERROR).into_response();
+        }
+    };
+
+    let scans = match state.db.get_scans_for_location(&id).await {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::error!("Failed to get scans: {}", e);
+            return (user.jar, StatusCode::INTERNAL_SERVER_ERROR).into_response();
+        }
+    };
+
+    let refills = match state.db.get_refills_for_location(&id).await {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::error!("Failed to get refills: {}", e);
+            return (user.jar, StatusCode::INTERNAL_SERVER_ERROR).into_response();
+        }
+    };
+
+    let current_user_id = Some(user.user_id.as_str());
+    let username = get_navbar_username(&user.kind);
 
     let content = templates::location_detail(
         &location,
@@ -169,120 +141,132 @@ pub async fn location_detail_page(
     );
     let page = templates::base_with_user(&location.name, content, username.as_deref());
 
-    Ok(Html(page.into_string()))
+    (user.jar, Html(page.into_string())).into_response()
 }
 
 pub async fn nfc_setup_page(
     State(state): State<Arc<AppState>>,
     Path(write_token): Path<String>,
-    _opt_auth: OptionalAuthUser,
-) -> Result<Response, StatusCode> {
+    user: CookieUser,
+) -> impl IntoResponse {
     // Get location by write token and redirect to location detail page
-    let location = state
-        .db
-        .get_location_by_write_token(&write_token)
-        .await
-        .map_err(|e| {
+    let location = match state.db.get_location_by_write_token(&write_token).await {
+        Ok(Some(l)) => l,
+        Ok(None) => return (user.jar, StatusCode::NOT_FOUND).into_response(),
+        Err(e) => {
             tracing::error!("Failed to get location by write token: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?
-        .ok_or(StatusCode::NOT_FOUND)?;
+            return (user.jar, StatusCode::INTERNAL_SERVER_ERROR).into_response();
+        }
+    };
 
     // Redirect to location detail page where NFC setup is now integrated
-    Ok(Redirect::to(&format!("/locations/{}", location.id)).into_response())
+    (
+        user.jar,
+        Redirect::to(&format!("/locations/{}", location.id)),
+    )
+        .into_response()
 }
 
 pub async fn donate_page(
     State(state): State<Arc<AppState>>,
-    opt_auth: OptionalAuthUser,
-) -> Result<Html<String>, StatusCode> {
-    let pool = state.db.get_donation_pool().await.map_err(|e| {
-        tracing::error!("Failed to get donation pool: {}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
-
-    let completed_donations = state.db.list_completed_donations().await.map_err(|e| {
-        tracing::error!("Failed to get completed donations: {}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
-
-    let username = match opt_auth.user_id {
-        Some(user_id) => state
-            .db
-            .get_user_by_id(&user_id)
-            .await
-            .ok()
-            .flatten()
-            .map(|user| user.username),
-        None => None,
+    user: CookieUser,
+) -> impl IntoResponse {
+    let pool = match state.db.get_donation_pool().await {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::error!("Failed to get donation pool: {}", e);
+            return (user.jar, StatusCode::INTERNAL_SERVER_ERROR).into_response();
+        }
     };
 
+    let completed_donations = match state.db.list_completed_donations().await {
+        Ok(d) => d,
+        Err(e) => {
+            tracing::error!("Failed to get completed donations: {}", e);
+            return (user.jar, StatusCode::INTERNAL_SERVER_ERROR).into_response();
+        }
+    };
+
+    let username = get_navbar_username(&user.kind);
     let content = templates::donate(&pool, &completed_donations);
     let page = templates::base_with_user("Donate", content, username.as_deref());
 
-    Ok(Html(page.into_string()))
+    (user.jar, Html(page.into_string())).into_response()
 }
 
-pub async fn login_page(Query(params): Query<ErrorQuery>) -> Html<String> {
+pub async fn login_page(Query(params): Query<ErrorQuery>, user: CookieUser) -> impl IntoResponse {
     let content = templates::login(params.error.as_deref());
     let page = templates::base("Login", content);
-    Html(page.into_string())
+    (user.jar, Html(page.into_string()))
 }
 
-pub async fn register_page(Query(params): Query<ErrorQuery>) -> Html<String> {
+pub async fn register_page(
+    Query(params): Query<ErrorQuery>,
+    user: CookieUser,
+) -> impl IntoResponse {
     let content = templates::register(params.error.as_deref());
     let page = templates::base("Register", content);
-    Html(page.into_string())
+    (user.jar, Html(page.into_string()))
 }
 
 pub async fn login(
     State(state): State<Arc<AppState>>,
-    session: Session,
+    user: CookieUser,
     Form(login_req): Form<LoginRequest>,
-) -> Response {
+) -> impl IntoResponse {
     // Get user by username
-    let user = match state.db.get_user_by_username(&login_req.username).await {
-        Ok(Some(user)) => user,
+    let db_user = match state.db.get_user_by_username(&login_req.username).await {
+        Ok(Some(u)) => u,
         Ok(None) => {
             tracing::warn!(
                 "Login attempt for non-existent user: {}",
                 login_req.username
             );
-            return Redirect::to("/login?error=Invalid%20username%20or%20password").into_response();
+            return (
+                user.jar,
+                Redirect::to("/login?error=Invalid%20username%20or%20password"),
+            )
+                .into_response();
         }
         Err(e) => {
             tracing::error!("Database error during login: {}", e);
-            return Redirect::to("/login?error=An%20error%20occurred.%20Please%20try%20again.")
+            return (
+                user.jar,
+                Redirect::to("/login?error=An%20error%20occurred.%20Please%20try%20again."),
+            )
                 .into_response();
         }
     };
 
     // Verify password
-    match verify_user_password(&user, &login_req.password) {
+    match verify_user_password(&db_user, &login_req.password) {
         Ok(true) => {
-            // Password is correct, create session
-            if let Err(e) = login_user(&session, &user.id).await {
-                tracing::error!("Failed to create session: {}", e);
-                return Redirect::to("/login?error=An%20error%20occurred.%20Please%20try%20again.")
-                    .into_response();
-            }
+            // Password is correct, set cookie to point to this user
+            let jar = set_user_cookie(user.jar, &db_user.id);
 
             // Update last login time
-            if let Err(e) = state.db.update_last_login(&user.id).await {
+            if let Err(e) = state.db.update_last_login(&db_user.id).await {
                 tracing::error!("Failed to update last login: {}", e);
                 // Don't fail the login for this
             }
 
-            tracing::info!("User {} logged in successfully", user.username);
-            Redirect::to("/").into_response()
+            tracing::info!("User {} logged in successfully", db_user.display_name());
+            (jar, Redirect::to("/")).into_response()
         }
         Ok(false) => {
             tracing::warn!("Failed login attempt for user: {}", login_req.username);
-            Redirect::to("/login?error=Invalid%20username%20or%20password").into_response()
+            (
+                user.jar,
+                Redirect::to("/login?error=Invalid%20username%20or%20password"),
+            )
+                .into_response()
         }
         Err(e) => {
             tracing::error!("Error verifying password: {}", e);
-            Redirect::to("/login?error=An%20error%20occurred.%20Please%20try%20again.")
+            (
+                user.jar,
+                Redirect::to("/login?error=An%20error%20occurred.%20Please%20try%20again."),
+            )
                 .into_response()
         }
     }
@@ -290,17 +274,25 @@ pub async fn login(
 
 pub async fn register(
     State(state): State<Arc<AppState>>,
-    session: Session,
+    user: CookieUser,
     Form(register_req): Form<RegisterRequest>,
-) -> Response {
+) -> impl IntoResponse {
     // Validate username is not empty
     if register_req.username.trim().is_empty() {
-        return Redirect::to("/register?error=Username%20cannot%20be%20empty").into_response();
+        return (
+            user.jar,
+            Redirect::to("/register?error=Username%20cannot%20be%20empty"),
+        )
+            .into_response();
     }
 
     // Validate password is not empty
     if register_req.password.is_empty() {
-        return Redirect::to("/register?error=Password%20cannot%20be%20empty").into_response();
+        return (
+            user.jar,
+            Redirect::to("/register?error=Password%20cannot%20be%20empty"),
+        )
+            .into_response();
     }
 
     // Check if username already exists
@@ -310,12 +302,19 @@ pub async fn register(
                 "Registration attempt with existing username: {}",
                 register_req.username
             );
-            return Redirect::to("/register?error=Username%20already%20exists").into_response();
+            return (
+                user.jar,
+                Redirect::to("/register?error=Username%20already%20exists"),
+            )
+                .into_response();
         }
         Ok(None) => {}
         Err(e) => {
             tracing::error!("Database error checking username: {}", e);
-            return Redirect::to("/register?error=An%20error%20occurred.%20Please%20try%20again.")
+            return (
+                user.jar,
+                Redirect::to("/register?error=An%20error%20occurred.%20Please%20try%20again."),
+            )
                 .into_response();
         }
     }
@@ -325,14 +324,17 @@ pub async fn register(
         Ok(hash) => hash,
         Err(e) => {
             tracing::error!("Failed to hash password: {}", e);
-            return Redirect::to("/register?error=An%20error%20occurred.%20Please%20try%20again.")
+            return (
+                user.jar,
+                Redirect::to("/register?error=An%20error%20occurred.%20Please%20try%20again."),
+            )
                 .into_response();
         }
     };
 
     // Create user with password auth method
     let auth_method = AuthMethod::Password { password_hash };
-    let user = match state
+    let db_user = match state
         .db
         .create_user(
             register_req.username.clone(),
@@ -341,69 +343,64 @@ pub async fn register(
         )
         .await
     {
-        Ok(user) => user,
+        Ok(u) => u,
         Err(e) => {
             tracing::error!("Failed to create user: {}", e);
-            return Redirect::to("/register?error=An%20error%20occurred.%20Please%20try%20again.")
+            return (
+                user.jar,
+                Redirect::to("/register?error=An%20error%20occurred.%20Please%20try%20again."),
+            )
                 .into_response();
         }
     };
 
-    // Log the user in immediately
-    if let Err(e) = login_user(&session, &user.id).await {
-        tracing::error!("Failed to create session after registration: {}", e);
-        return Redirect::to("/register?error=An%20error%20occurred.%20Please%20try%20again.")
-            .into_response();
-    }
+    // Set cookie to point to the new user
+    let jar = set_user_cookie(user.jar, &db_user.id);
 
-    tracing::info!("New user registered: {}", user.username);
-    Redirect::to("/").into_response()
+    tracing::info!("New user registered: {}", db_user.display_name());
+    (jar, Redirect::to("/")).into_response()
 }
 
-pub async fn logout(session: Session) -> Response {
-    if let Err(e) = logout_user(&session).await {
-        tracing::error!("Failed to logout: {}", e);
-        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-    }
-
-    Redirect::to("/").into_response()
+pub async fn logout(user: CookieUser) -> impl IntoResponse {
+    // Remove the user cookie (generates a new anonymous ID)
+    let jar = remove_user_cookie(user.jar);
+    (jar, Redirect::to("/"))
 }
 
 pub async fn profile_page(
     State(state): State<Arc<AppState>>,
-    auth: AuthUser,
-) -> Result<Html<String>, StatusCode> {
+    auth: RequireRegistered,
+) -> impl IntoResponse {
     // Get user data
-    let user = state
-        .db
-        .get_user_by_id(&auth.user_id)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to get user: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?
-        .ok_or_else(|| {
+    let user = match state.db.get_user_by_id(&auth.user_id).await {
+        Ok(Some(u)) => u,
+        Ok(None) => {
             tracing::error!("User not found: {}", auth.user_id);
-            StatusCode::NOT_FOUND
-        })?;
+            return (auth.jar, StatusCode::NOT_FOUND).into_response();
+        }
+        Err(e) => {
+            tracing::error!("Failed to get user: {}", e);
+            return (auth.jar, StatusCode::INTERNAL_SERVER_ERROR).into_response();
+        }
+    };
 
     // Get user's locations
-    let locations = state
-        .db
-        .get_locations_by_user(&auth.user_id)
-        .await
-        .map_err(|e| {
+    let locations = match state.db.get_locations_by_user(&auth.user_id).await {
+        Ok(l) => l,
+        Err(e) => {
             tracing::error!("Failed to get user locations: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+            return (auth.jar, StatusCode::INTERNAL_SERVER_ERROR).into_response();
+        }
+    };
 
     let content = templates::profile(&user, &locations, state.max_sats_per_location);
-    let page = templates::base_with_user("Profile", content, Some(&user.username));
+    let display_name = user.display_name();
+    let page = templates::base_with_user("Profile", content, Some(&display_name));
 
-    Ok(Html(page.into_string()))
+    (auth.jar, Html(page.into_string())).into_response()
 }
 
-/// Withdraw page - displays multiple withdrawal options for a location.
+/// Withdraw/Collection page - displays the collection UI for the custodial wallet.
 ///
 /// The URL should contain picc_data and cmac query parameters from the NFC chip
 /// for counter verification.
@@ -414,45 +411,44 @@ pub async fn withdraw_page(
     State(state): State<Arc<AppState>>,
     Path(location_id): Path<String>,
     Query(params): Query<WithdrawQuery>,
-    opt_auth: OptionalAuthUser,
-) -> Result<Response, StatusCode> {
+    user: CookieUser,
+) -> impl IntoResponse {
     // Get the location
-    let location = state
-        .db
-        .get_location(&location_id)
-        .await
-        .map_err(|e| {
+    let location = match state.db.get_location(&location_id).await {
+        Ok(Some(l)) => l,
+        Ok(None) => return (user.jar, StatusCode::NOT_FOUND).into_response(),
+        Err(e) => {
             tracing::error!("Failed to get location: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?
-        .ok_or(StatusCode::NOT_FOUND)?;
-
-    // Get username for navbar
-    let username = match opt_auth.user_id {
-        Some(user_id) => state
-            .db
-            .get_user_by_id(&user_id)
-            .await
-            .ok()
-            .flatten()
-            .map(|user| user.username),
-        None => None,
+            return (user.jar, StatusCode::INTERNAL_SERVER_ERROR).into_response();
+        }
     };
+
+    // Get user's current balance (if they have any transactions)
+    let user_balance_msats = state.db.get_user_balance(&user.user_id).await.unwrap_or(0);
+    let user_balance_sats = user_balance_msats / 1000;
+
+    // Get user info from DB for template
+    let db_user = state.db.get_user_by_id(&user.user_id).await.ok().flatten();
+
+    let is_new_user = matches!(user.kind, UserKind::AnonNew);
 
     // Check if we have SUN parameters
     let (picc_data, cmac) = match (&params.p, &params.c) {
         (Some(p), Some(c)) => (p.clone(), c.clone()),
         _ => {
             // No SUN parameters - show error
-            let content = templates::withdraw::withdraw(
-                &location,
-                location.withdrawable_sats(),
-                "",
-                "",
-                Some("Invalid NFC scan. Please scan the sticker again."),
-            );
-            let page = templates::base_with_user("Withdraw", content, username.as_deref());
-            return Ok(Html(page.into_string()).into_response());
+            let content = templates::collect(templates::CollectParams {
+                location: &location,
+                available_sats: location.current_sats(),
+                current_balance_sats: user_balance_sats,
+                picc_data: "",
+                cmac: "",
+                error: Some("Invalid NFC scan. Please scan the sticker again."),
+                is_new_user,
+                user: db_user.as_ref(),
+            });
+            let page = templates::base("Collect Sats", content);
+            return (user.jar, Html(page.into_string())).into_response();
         }
     };
 
@@ -466,41 +462,42 @@ pub async fn withdraw_page(
         match &verification {
             Ok(v) => {
                 // Update counter to prevent replay
-                state
+                if let Err(e) = state
                     .db
                     .update_nfc_card_counter(&v.nfc_card.location_id, v.counter as i64)
                     .await
-                    .map_err(|e| {
-                        tracing::error!("Failed to update NFC card counter: {}", e);
-                        StatusCode::INTERNAL_SERVER_ERROR
-                    })?;
+                {
+                    tracing::error!("Failed to update NFC card counter: {}", e);
+                    return (user.jar, StatusCode::INTERNAL_SERVER_ERROR).into_response();
+                }
 
                 // Activate the location
-                state
+                if let Err(e) = state
                     .db
                     .update_location_status(&location.id, "active")
                     .await
-                    .map_err(|e| {
-                        tracing::error!("Failed to activate location: {}", e);
-                        StatusCode::INTERNAL_SERVER_ERROR
-                    })?;
+                {
+                    tracing::error!("Failed to activate location: {}", e);
+                    return (user.jar, StatusCode::INTERNAL_SERVER_ERROR).into_response();
+                }
 
                 tracing::info!("Location {} activated on first scan", location.name);
 
                 // Redirect to location details page
-                return Ok(
-                    Redirect::to(&format!("/locations/{}?success=activated", location.id))
-                        .into_response(),
-                );
+                return (
+                    user.jar,
+                    Redirect::to(&format!("/locations/{}?success=activated", location.id)),
+                )
+                    .into_response();
             }
             Err(e) => {
                 tracing::error!("First scan verification failed: {}", e);
-                // Fall through to show error on withdraw page
+                // Fall through to show error on collection page
             }
         }
     }
 
-    // For active locations, show the withdraw page
+    // For active locations, show the collection page
     let error_message = match verification {
         Ok(_) => None,
         Err(ntag424::SunError::ReplayDetected { .. }) => {
@@ -524,14 +521,73 @@ pub async fn withdraw_page(
     // Combine with any error from query params
     let error = params.error.as_deref().or(error_message);
 
-    let content = templates::withdraw::withdraw(
-        &location,
-        location.withdrawable_sats(),
-        &picc_data,
-        &cmac,
+    let content = templates::collect(templates::CollectParams {
+        location: &location,
+        available_sats: location.current_sats(),
+        current_balance_sats: user_balance_sats,
+        picc_data: &picc_data,
+        cmac: &cmac,
         error,
-    );
-    let page = templates::base_with_user("Withdraw", content, username.as_deref());
+        is_new_user,
+        user: db_user.as_ref(),
+    });
+    let page = templates::base("Collect Sats", content);
 
-    Ok(Html(page.into_string()).into_response())
+    (user.jar, Html(page.into_string())).into_response()
+}
+
+/// Query parameters for wallet page
+#[derive(Deserialize)]
+pub struct WalletQuery {
+    pub success: Option<String>,
+    pub amount: Option<i64>,
+    pub location: Option<String>,
+}
+
+/// Wallet page - shows user's balance and transaction history.
+pub async fn wallet_page(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<WalletQuery>,
+    user: CookieUser,
+) -> impl IntoResponse {
+    tracing::debug!(
+        "Wallet page: user_id={}, kind={:?}",
+        user.user_id,
+        user.kind
+    );
+
+    // Get user balance
+    let balance_msats = state.db.get_user_balance(&user.user_id).await.unwrap_or(0);
+    let balance_sats = balance_msats / 1000;
+
+    // Get recent transactions
+    let transactions = state
+        .db
+        .get_user_transactions(&user.user_id, 50)
+        .await
+        .unwrap_or_default();
+
+    // Get user from DB for template
+    let db_user = state.db.get_user_by_id(&user.user_id).await.ok().flatten();
+
+    tracing::debug!(
+        "Wallet page: user from DB = {:?}",
+        db_user
+            .as_ref()
+            .map(|u| (&u.id, &u.username, &u.auth_method))
+    );
+
+    // Build content
+    let content = templates::wallet(
+        balance_sats,
+        &transactions,
+        db_user.as_ref(),
+        params.success.as_deref(),
+        params.amount,
+        params.location.as_deref(),
+    );
+    let username = get_navbar_username(&user.kind);
+    let page = templates::base_with_user("My Wallet", content, username.as_deref());
+
+    (user.jar, Html(page.into_string())).into_response()
 }

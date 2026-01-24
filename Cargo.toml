@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 # Web framework
 axum = { version = "0.7", features = ["multipart"] }
+axum-extra = { version = "0.9", features = ["cookie-private"] }
 tokio = { version = "1", features = ["full"] }
 tower = "0.4"
 tower-http = { version = "0.5", features = ["fs", "trace"] }
@@ -38,6 +39,7 @@ base64 = "0.22"
 
 # Time handling
 chrono = { version = "0.4", features = ["serde"] }
+time = "0.3"
 
 # Environment & config
 dotenvy = "0.15"
@@ -77,6 +79,7 @@ bech32 = "0.11"
 
 # Async trait support
 async-trait = "0.1"
+
 
 [dev-dependencies]
 tempfile = "3"

@@ -5,10 +5,17 @@ use sqlx::FromRow;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AuthMethod {
-    Password { password_hash: String },
-    OAuthGoogle { google_id: String },
-    OAuthGithub { github_id: String },
-    // Future auth methods can be added here
+    Password {
+        password_hash: String,
+    },
+    OAuthGoogle {
+        google_id: String,
+    },
+    OAuthGithub {
+        github_id: String,
+    },
+    /// Anonymous users identified by signed cookie UUID
+    Anonymous {},
 }
 
 impl AuthMethod {
@@ -17,6 +24,7 @@ impl AuthMethod {
             AuthMethod::Password { .. } => "password",
             AuthMethod::OAuthGoogle { .. } => "oauth_google",
             AuthMethod::OAuthGithub { .. } => "oauth_github",
+            AuthMethod::Anonymous {} => "anonymous",
         }
     }
 
@@ -53,6 +61,7 @@ impl AuthMethod {
                         .to_string(),
                 })
             }
+            "anonymous" => Ok(AuthMethod::Anonymous {}),
             _ => Err(anyhow::anyhow!("Unknown auth method: {}", type_str)),
         }
     }
@@ -61,7 +70,8 @@ impl AuthMethod {
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct User {
     pub id: String,
-    pub username: String,
+    /// Username - None for anonymous users
+    pub username: Option<String>,
     pub email: Option<String>,
     pub auth_method: String,
     pub auth_data: String,
@@ -72,6 +82,18 @@ pub struct User {
 impl User {
     pub fn get_auth_method(&self) -> anyhow::Result<AuthMethod> {
         AuthMethod::from_json(&self.auth_method, &self.auth_data)
+    }
+
+    /// Check if this is an anonymous user
+    pub fn is_anonymous(&self) -> bool {
+        self.auth_method == "anonymous"
+    }
+
+    /// Get display name - username for registered users, truncated ID for anonymous
+    pub fn display_name(&self) -> String {
+        self.username
+            .clone()
+            .unwrap_or_else(|| format!("anon_{}", &self.id[..8]))
     }
 }
 
@@ -170,12 +192,42 @@ pub struct Scan {
     pub location_id: String,
     pub msats_withdrawn: i64,
     pub scanned_at: DateTime<Utc>,
+    /// User who collected sats from this scan (None for legacy scans before custodial system)
+    pub user_id: Option<String>,
 }
 
 impl Scan {
     /// Get withdrawn amount in sats for display
     pub fn sats_withdrawn(&self) -> i64 {
         self.msats_withdrawn / 1000
+    }
+}
+
+/// User transaction for tracking sat collections and withdrawals in the custodial wallet
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+pub struct UserTransaction {
+    pub id: String,
+    pub user_id: String,
+    /// Location where sats were collected from (None for withdrawals)
+    pub location_id: Option<String>,
+    pub msats: i64,
+    /// Transaction type: 'collect' or 'withdraw'
+    pub transaction_type: String,
+    pub created_at: DateTime<Utc>,
+}
+
+impl UserTransaction {
+    /// Get amount in sats for display
+    pub fn sats(&self) -> i64 {
+        self.msats / 1000
+    }
+
+    pub fn is_collect(&self) -> bool {
+        self.transaction_type == "collect"
+    }
+
+    pub fn is_withdraw(&self) -> bool {
+        self.transaction_type == "withdraw"
     }
 }
 
@@ -481,9 +533,84 @@ mod tests {
     }
 
     #[test]
+    fn test_auth_method_anonymous_roundtrip() {
+        let auth = AuthMethod::Anonymous {};
+
+        let json = auth.to_json().unwrap();
+        let parsed = AuthMethod::from_json("anonymous", &json).unwrap();
+
+        match parsed {
+            AuthMethod::Anonymous {} => {}
+            _ => panic!("Expected Anonymous variant"),
+        }
+
+        assert_eq!(auth.to_type_string(), "anonymous");
+    }
+
+    #[test]
     fn test_auth_method_from_json_unknown_type() {
         let result = AuthMethod::from_json("unknown", "{}");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_user_display_name() {
+        let now = Utc::now();
+
+        // Registered user with username
+        let registered_user = User {
+            id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
+            username: Some("testuser".to_string()),
+            email: None,
+            auth_method: "password".to_string(),
+            auth_data: "{}".to_string(),
+            created_at: now,
+            last_login_at: None,
+        };
+        assert_eq!(registered_user.display_name(), "testuser");
+        assert!(!registered_user.is_anonymous());
+
+        // Anonymous user without username
+        let anon_user = User {
+            id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
+            username: None,
+            email: None,
+            auth_method: "anonymous".to_string(),
+            auth_data: "{}".to_string(),
+            created_at: now,
+            last_login_at: None,
+        };
+        assert_eq!(anon_user.display_name(), "anon_550e8400");
+        assert!(anon_user.is_anonymous());
+    }
+
+    #[test]
+    fn test_user_transaction() {
+        let now = Utc::now();
+
+        let collect_tx = UserTransaction {
+            id: "tx-1".to_string(),
+            user_id: "user-1".to_string(),
+            location_id: Some("loc-1".to_string()),
+            msats: 5000,
+            transaction_type: "collect".to_string(),
+            created_at: now,
+        };
+        assert!(collect_tx.is_collect());
+        assert!(!collect_tx.is_withdraw());
+        assert_eq!(collect_tx.sats(), 5);
+
+        let withdraw_tx = UserTransaction {
+            id: "tx-2".to_string(),
+            user_id: "user-1".to_string(),
+            location_id: None,
+            msats: 3000,
+            transaction_type: "withdraw".to_string(),
+            created_at: now,
+        };
+        assert!(!withdraw_tx.is_collect());
+        assert!(withdraw_tx.is_withdraw());
+        assert_eq!(withdraw_tx.sats(), 3);
     }
 
     #[test]
@@ -503,6 +630,7 @@ mod tests {
             location_id: "loc-id".to_string(),
             msats_withdrawn: 5678,
             scanned_at: Utc::now(),
+            user_id: None,
         };
         assert_eq!(scan.sats_withdrawn(), 5);
     }

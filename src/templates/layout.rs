@@ -107,6 +107,12 @@ fn navbar(username: Option<&str>) -> Markup {
                                     "DONATE"
                                 }
                             }
+                            li {
+                                a href="/wallet" class="text-primary transition hover:text-highlight font-bold" {
+                                    i class="fa-solid fa-wallet mr-2" {}
+                                    "WALLET"
+                                }
+                            }
                         }
                     }
 
@@ -172,6 +178,12 @@ fn navbar(username: Option<&str>) -> Markup {
                             a href="/donate" class="block py-3 text-highlight font-bold hover:text-primary orange" style="border-bottom: none;" {
                                 i class="fa-solid fa-coins mr-2" {}
                                 "DONATE"
+                            }
+                        }
+                        li {
+                            a href="/wallet" class="block py-3 text-primary font-bold hover:text-highlight" style="border-bottom: none;" {
+                                i class="fa-solid fa-wallet mr-2" {}
+                                "WALLET"
                             }
                         }
                     }
