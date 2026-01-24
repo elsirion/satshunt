@@ -1,8 +1,10 @@
-//! LNURL-pay protocol implementation for LN address resolution.
+//! LNURL protocol implementation.
 //!
-//! This module handles resolving Lightning Addresses (user@domain.com format)
-//! to BOLT11 invoices using the LNURL-pay protocol (LUD-16).
+//! This module handles:
+//! - Resolving Lightning Addresses (user@domain.com format) to BOLT11 invoices (LUD-16)
+//! - Encoding URLs to LNURL bech32 format (LUD-01)
 
+use bech32::{Bech32m, Hrp};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -210,6 +212,17 @@ pub async fn get_invoice_for_ln_address(
     }
 
     get_invoice(&lnurl_pay.callback, amount_msats).await
+}
+
+/// Encode a URL as an LNURL bech32 string (LUD-01).
+///
+/// LNURL encoding uses bech32 with the "lnurl" HRP (human-readable part).
+/// The resulting string is uppercase for better QR code compatibility.
+pub fn encode_lnurl(url: &str) -> Result<String, LnurlError> {
+    let hrp = Hrp::parse("lnurl").map_err(|e| LnurlError::InvalidFormat(e.to_string()))?;
+    let encoded = bech32::encode::<Bech32m>(hrp, url.as_bytes())
+        .map_err(|e| LnurlError::InvalidFormat(e.to_string()))?;
+    Ok(encoded.to_uppercase())
 }
 
 #[cfg(test)]

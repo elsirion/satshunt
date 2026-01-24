@@ -1,6 +1,6 @@
 use crate::models::{
     AuthMethod, DonationPool, Location, NfcCard, PendingDonation, Photo, Refill, Scan, Stats, User,
-    UserTransaction,
+    UserTransaction, WithdrawalStatus,
 };
 use anyhow::Result;
 use chrono::Utc;
@@ -694,7 +694,8 @@ impl Database {
 
     /// Get user's balance (sum of collections - sum of withdrawals)
     pub async fn get_user_balance(&self, user_id: &str) -> Result<i64> {
-        let result: Option<i64> = sqlx::query_scalar(
+        // Get balance from transactions
+        let tx_balance: Option<i64> = sqlx::query_scalar(
             r#"
             SELECT COALESCE(
                 SUM(CASE WHEN transaction_type = 'collect' THEN msats ELSE -msats END),
@@ -706,7 +707,17 @@ impl Database {
         .fetch_one(&self.pool)
         .await?;
 
-        Ok(result.unwrap_or(0))
+        // Get pending withdrawals (reserved but not yet completed)
+        let pending: Option<i64> = sqlx::query_scalar(
+            "SELECT COALESCE(SUM(msats), 0) FROM pending_withdrawals WHERE user_id = ? AND status = ?",
+        )
+        .bind(user_id)
+        .bind(WithdrawalStatus::Pending.as_str())
+        .fetch_one(&self.pool)
+        .await?;
+
+        // Available balance = transactions balance - pending withdrawals
+        Ok(tx_balance.unwrap_or(0) - pending.unwrap_or(0))
     }
 
     /// Get user's transaction history
@@ -863,6 +874,131 @@ impl Database {
         .bind(now)
         .execute(&self.pool)
         .await?;
+        Ok(())
+    }
+
+    /// Create a pending withdrawal, reserving the balance.
+    ///
+    /// This creates a pending withdrawal record that reduces the user's available balance.
+    /// Returns the pending withdrawal ID if successful, or None if insufficient balance.
+    pub async fn create_pending_withdrawal(
+        &self,
+        user_id: &str,
+        amount_msats: i64,
+        invoice: &str,
+    ) -> Result<Option<String>> {
+        let mut tx = self.pool.begin().await?;
+
+        // Get current balance from transactions
+        let tx_balance: Option<i64> = sqlx::query_scalar(
+            r#"
+            SELECT COALESCE(
+                SUM(CASE WHEN transaction_type = 'collect' THEN msats ELSE -msats END),
+                0
+            ) FROM user_transactions WHERE user_id = ?
+            "#,
+        )
+        .bind(user_id)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        // Get existing pending withdrawals
+        let pending: Option<i64> = sqlx::query_scalar(
+            "SELECT COALESCE(SUM(msats), 0) FROM pending_withdrawals WHERE user_id = ? AND status = ?",
+        )
+        .bind(user_id)
+        .bind(WithdrawalStatus::Pending.as_str())
+        .fetch_one(&mut *tx)
+        .await?;
+
+        let available_balance = tx_balance.unwrap_or(0) - pending.unwrap_or(0);
+
+        // Check sufficient balance
+        if available_balance < amount_msats {
+            return Ok(None);
+        }
+
+        let now = Utc::now();
+        let id = Uuid::new_v4().to_string();
+
+        // Create pending withdrawal
+        sqlx::query(
+            "INSERT INTO pending_withdrawals (id, user_id, msats, invoice, status, created_at) VALUES (?, ?, ?, ?, ?, ?)"
+        )
+        .bind(&id)
+        .bind(user_id)
+        .bind(amount_msats)
+        .bind(invoice)
+        .bind(WithdrawalStatus::Pending.as_str())
+        .bind(now)
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+
+        Ok(Some(id))
+    }
+
+    /// Complete a pending withdrawal, recording the actual transaction.
+    ///
+    /// This marks the pending withdrawal as completed and records the withdrawal transaction.
+    pub async fn complete_pending_withdrawal(&self, withdrawal_id: &str) -> Result<()> {
+        let mut tx = self.pool.begin().await?;
+        let now = Utc::now();
+
+        // Get the pending withdrawal
+        let withdrawal: Option<(String, i64)> = sqlx::query_as(
+            "SELECT user_id, msats FROM pending_withdrawals WHERE id = ? AND status = ?",
+        )
+        .bind(withdrawal_id)
+        .bind(WithdrawalStatus::Pending.as_str())
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        let (user_id, msats) = withdrawal
+            .ok_or_else(|| anyhow::anyhow!("Pending withdrawal not found or already processed"))?;
+
+        // Mark as completed
+        sqlx::query("UPDATE pending_withdrawals SET status = ?, completed_at = ? WHERE id = ?")
+            .bind(WithdrawalStatus::Completed.as_str())
+            .bind(now)
+            .bind(withdrawal_id)
+            .execute(&mut *tx)
+            .await?;
+
+        // Record the withdrawal transaction
+        let tx_id = Uuid::new_v4().to_string();
+        sqlx::query(
+            "INSERT INTO user_transactions (id, user_id, location_id, msats, transaction_type, created_at) VALUES (?, ?, NULL, ?, 'withdraw', ?)"
+        )
+        .bind(&tx_id)
+        .bind(&user_id)
+        .bind(msats)
+        .bind(now)
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+
+        Ok(())
+    }
+
+    /// Fail a pending withdrawal, releasing the reserved balance.
+    ///
+    /// This marks the pending withdrawal as failed, making the balance available again.
+    pub async fn fail_pending_withdrawal(&self, withdrawal_id: &str) -> Result<()> {
+        let now = Utc::now();
+
+        sqlx::query(
+            "UPDATE pending_withdrawals SET status = ?, completed_at = ? WHERE id = ? AND status = ?",
+        )
+        .bind(WithdrawalStatus::Failed.as_str())
+        .bind(now)
+        .bind(withdrawal_id)
+        .bind(WithdrawalStatus::Pending.as_str())
+        .execute(&self.pool)
+        .await?;
+
         Ok(())
     }
 

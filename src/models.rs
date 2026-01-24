@@ -334,6 +334,85 @@ impl PendingDonation {
     }
 }
 
+/// Status of a pending withdrawal
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum WithdrawalStatus {
+    Pending,
+    Completed,
+    Failed,
+}
+
+impl WithdrawalStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Completed => "completed",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+impl std::fmt::Display for WithdrawalStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+impl std::str::FromStr for WithdrawalStatus {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "pending" => Ok(Self::Pending),
+            "completed" => Ok(Self::Completed),
+            "failed" => Ok(Self::Failed),
+            _ => Err(anyhow::anyhow!("Invalid withdrawal status: {}", s)),
+        }
+    }
+}
+
+impl TryFrom<String> for WithdrawalStatus {
+    type Error = anyhow::Error;
+
+    fn try_from(s: String) -> Result<Self, Self::Error> {
+        s.parse()
+    }
+}
+
+/// Pending withdrawal from custodial wallet.
+/// Used to prevent double-spending by reserving balance before payment attempt.
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+pub struct PendingWithdrawal {
+    pub id: String,
+    pub user_id: String,
+    pub msats: i64,
+    pub invoice: String,
+    #[sqlx(try_from = "String")]
+    pub status: WithdrawalStatus,
+    pub created_at: DateTime<Utc>,
+    pub completed_at: Option<DateTime<Utc>>,
+}
+
+impl PendingWithdrawal {
+    pub fn is_pending(&self) -> bool {
+        self.status == WithdrawalStatus::Pending
+    }
+
+    pub fn is_completed(&self) -> bool {
+        self.status == WithdrawalStatus::Completed
+    }
+
+    pub fn is_failed(&self) -> bool {
+        self.status == WithdrawalStatus::Failed
+    }
+
+    /// Get amount in sats for display
+    pub fn sats(&self) -> i64 {
+        self.msats / 1000
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

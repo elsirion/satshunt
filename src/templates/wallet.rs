@@ -9,6 +9,7 @@ pub fn wallet(
     success: Option<&str>,
     amount: Option<i64>,
     location_name: Option<&str>,
+    lnurlw_string: Option<&str>,
 ) -> Markup {
     html! {
         div class="max-w-2xl mx-auto" {
@@ -22,6 +23,16 @@ pub fn wallet(
                             " from " (name)
                         }
                         "!"
+                    }
+                }
+            }
+
+            // Success message for withdrawal
+            @if let (Some("withdrawn"), Some(amt)) = (success, amount) {
+                div class="alert-brutal mb-6" style="background: var(--color-success); border-color: var(--color-success);" {
+                    p class="font-bold text-white" {
+                        i class="fa-solid fa-check-circle mr-2" {}
+                        "Withdrew " (amt) " sats!"
                     }
                 }
             }
@@ -45,7 +56,7 @@ pub fn wallet(
                         }
                     }
                     div class="label-brutal text-xs mb-2" { "CURRENT BALANCE" }
-                    div class="text-6xl font-black text-highlight orange" {
+                    div id="balance-display" class="text-6xl font-black text-highlight orange" {
                         (balance_sats)
                         " "
                         i class="fa-solid fa-bolt" {}
@@ -53,14 +64,148 @@ pub fn wallet(
                     div class="text-sm text-muted mt-2 font-bold" { "SATS" }
                 }
 
-                // Withdraw button (future feature)
+                // Withdraw section
                 div class="p-6" style="border-top: 3px solid var(--accent-muted);" {
-                    button disabled class="btn-brutal w-full opacity-50 cursor-not-allowed" {
-                        i class="fa-solid fa-arrow-right-from-bracket mr-2" {}
-                        "WITHDRAW (COMING SOON)"
+                    // Error message container (hidden by default)
+                    div id="withdraw-error" class="alert-brutal mb-4 hidden" style="background: var(--color-error); border-color: var(--color-error);" {
+                        p class="font-bold text-white" {
+                            i class="fa-solid fa-exclamation-circle mr-2" {}
+                            span id="withdraw-error-text" {}
+                        }
                     }
-                    p class="text-xs text-muted mt-2 text-center font-bold" {
-                        "Lightning withdrawals will be available soon!"
+
+                    // Success message container (hidden by default)
+                    div id="withdraw-success" class="alert-brutal mb-4 hidden" style="background: var(--color-success); border-color: var(--color-success);" {
+                        p class="font-bold text-white" {
+                            i class="fa-solid fa-check-circle mr-2" {}
+                            span id="withdraw-success-text" {}
+                        }
+                    }
+
+                    @if balance_sats > 0 {
+                        // Withdraw method tabs
+                        div class="mb-4" {
+                            div class="flex border-b-3" style="border-color: var(--accent-muted);" {
+                                button
+                                    id="tab-lnurl"
+                                    class="withdraw-tab px-4 py-2 font-bold text-sm active"
+                                    data-tab="lnurl"
+                                    style="border-bottom: 3px solid var(--highlight); margin-bottom: -3px; color: var(--highlight);" {
+                                    i class="fa-solid fa-bolt mr-2" {}
+                                    "WALLET"
+                                }
+                                button
+                                    id="tab-address"
+                                    class="withdraw-tab px-4 py-2 font-bold text-sm"
+                                    data-tab="address"
+                                    style="border-bottom: 3px solid transparent; margin-bottom: -3px; color: var(--text-muted);" {
+                                    i class="fa-solid fa-at mr-2" {}
+                                    "LN ADDRESS"
+                                }
+                                button
+                                    id="tab-invoice"
+                                    class="withdraw-tab px-4 py-2 font-bold text-sm"
+                                    data-tab="invoice"
+                                    style="border-bottom: 3px solid transparent; margin-bottom: -3px; color: var(--text-muted);" {
+                                    i class="fa-solid fa-paste mr-2" {}
+                                    "INVOICE"
+                                }
+                            }
+                        }
+
+                        // Tab content: LNURL-withdraw link
+                        div id="content-lnurl" class="withdraw-content" {
+                            div class="text-center" {
+                                p class="text-sm text-secondary mb-4 font-bold" {
+                                    "Open with your Lightning wallet to withdraw "
+                                    span class="text-highlight orange" { (balance_sats) }
+                                    " sats."
+                                }
+                                @if let Some(lnurl) = lnurlw_string {
+                                    a
+                                        href={"lightning:" (lnurl)}
+                                        class="btn-brutal-fill inline-block"
+                                        style="background: var(--highlight); border-color: var(--highlight);" {
+                                        i class="fa-solid fa-bolt mr-2" {}
+                                        "OPEN IN WALLET"
+                                    }
+                                } @else {
+                                    p class="text-muted" { "LNURL not available" }
+                                }
+                            }
+                        }
+
+                        // Tab content: Lightning Address
+                        div id="content-address" class="withdraw-content hidden" {
+                            form id="withdraw-form-address" class="space-y-4" {
+                                div {
+                                    label class="label-brutal text-xs mb-2 block" for="ln_address" {
+                                        "LIGHTNING ADDRESS"
+                                    }
+                                    input
+                                        type="text"
+                                        id="ln_address"
+                                        name="ln_address"
+                                        placeholder="you@wallet.com"
+                                        required
+                                        class="input-brutal w-full"
+                                        style="background: var(--bg-tertiary); border: 3px solid var(--accent-muted); padding: 12px; font-size: 16px;";
+                                }
+                                p class="text-xs text-muted font-bold" {
+                                    "Enter your Lightning address to withdraw your entire balance."
+                                }
+                                button
+                                    type="submit"
+                                    id="withdraw-btn-address"
+                                    class="btn-brutal-fill w-full"
+                                    style="background: var(--highlight); border-color: var(--highlight);" {
+                                    i class="fa-solid fa-arrow-right-from-bracket mr-2" {}
+                                    "WITHDRAW " (balance_sats) " SATS"
+                                }
+                            }
+                        }
+
+                        // Tab content: Paste Invoice
+                        div id="content-invoice" class="withdraw-content hidden" {
+                            form id="withdraw-form-invoice" class="space-y-4" {
+                                div {
+                                    label class="label-brutal text-xs mb-2 block" for="invoice" {
+                                        "LIGHTNING INVOICE"
+                                    }
+                                    textarea
+                                        id="invoice"
+                                        name="invoice"
+                                        placeholder="lnbc..."
+                                        required
+                                        rows="4"
+                                        class="input-brutal w-full font-mono text-sm"
+                                        style="background: var(--bg-tertiary); border: 3px solid var(--accent-muted); padding: 12px; resize: vertical;" {}
+                                }
+                                p class="text-xs text-muted font-bold" {
+                                    "Create an invoice in your wallet for the amount you want to withdraw (max "
+                                    span class="text-highlight orange" { (balance_sats) }
+                                    " sats) and paste it here."
+                                }
+                                button
+                                    type="submit"
+                                    id="withdraw-btn-invoice"
+                                    class="btn-brutal-fill w-full"
+                                    style="background: var(--highlight); border-color: var(--highlight);" {
+                                    i class="fa-solid fa-arrow-right-from-bracket mr-2" {}
+                                    "PAY INVOICE"
+                                }
+                            }
+                        }
+                    } @else {
+                        div class="text-center" {
+                            p class="text-muted font-bold" {
+                                i class="fa-solid fa-coins mr-2" {}
+                                "No balance to withdraw"
+                            }
+                            p class="text-xs text-muted mt-2" {
+                                "Collect some sats from NFC stickers to start!"
+                            }
+                        }
                     }
                 }
             }
@@ -165,5 +310,113 @@ pub fn wallet(
             </script>
             "#, u.id)))
         }
+
+        // Wallet scripts
+        (PreEscaped(r#"
+        <script>
+            document.addEventListener('DOMContentLoaded', function() {
+                // Tab switching
+                const tabs = document.querySelectorAll('.withdraw-tab');
+                const contents = document.querySelectorAll('.withdraw-content');
+
+                tabs.forEach(tab => {
+                    tab.addEventListener('click', function() {
+                        const targetTab = this.dataset.tab;
+
+                        // Update tab styles
+                        tabs.forEach(t => {
+                            t.style.borderBottomColor = 'transparent';
+                            t.style.color = 'var(--text-muted)';
+                        });
+                        this.style.borderBottomColor = 'var(--highlight)';
+                        this.style.color = 'var(--highlight)';
+
+                        // Show/hide content
+                        contents.forEach(c => c.classList.add('hidden'));
+                        document.getElementById('content-' + targetTab).classList.remove('hidden');
+                    });
+                });
+
+                // Helper function to handle withdrawal submission
+                async function handleWithdraw(endpoint, body, btn) {
+                    const errorDiv = document.getElementById('withdraw-error');
+                    const errorText = document.getElementById('withdraw-error-text');
+                    const successDiv = document.getElementById('withdraw-success');
+                    const successText = document.getElementById('withdraw-success-text');
+
+                    // Hide any previous messages
+                    errorDiv.classList.add('hidden');
+                    successDiv.classList.add('hidden');
+
+                    // Disable button and show loading state
+                    const originalText = btn.innerHTML;
+                    btn.disabled = true;
+                    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-2"></i>WITHDRAWING...';
+
+                    try {
+                        const response = await fetch(endpoint, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify(body),
+                        });
+
+                        const data = await response.json();
+
+                        if (data.success) {
+                            // Show success message
+                            successText.textContent = 'Withdrew ' + data.withdrawn_sats + ' sats!';
+                            successDiv.classList.remove('hidden');
+
+                            // Update balance display
+                            const balanceDisplay = document.getElementById('balance-display');
+                            if (balanceDisplay) {
+                                balanceDisplay.innerHTML = data.new_balance_sats + ' <i class="fa-solid fa-bolt"></i>';
+                            }
+
+                            // Redirect to wallet page with success message after short delay
+                            setTimeout(function() {
+                                window.location.href = '/wallet?success=withdrawn&amount=' + data.withdrawn_sats;
+                            }, 1500);
+                        } else {
+                            // Show error message
+                            errorText.textContent = data.error || 'Withdrawal failed. Please try again.';
+                            errorDiv.classList.remove('hidden');
+                            btn.disabled = false;
+                            btn.innerHTML = originalText;
+                        }
+                    } catch (err) {
+                        errorText.textContent = 'Network error. Please try again.';
+                        errorDiv.classList.remove('hidden');
+                        btn.disabled = false;
+                        btn.innerHTML = originalText;
+                    }
+                }
+
+                // Lightning Address form submission
+                const addressForm = document.getElementById('withdraw-form-address');
+                if (addressForm) {
+                    addressForm.addEventListener('submit', async function(e) {
+                        e.preventDefault();
+                        const lnAddress = document.getElementById('ln_address').value.trim();
+                        const btn = document.getElementById('withdraw-btn-address');
+                        await handleWithdraw('/api/wallet/withdraw', { ln_address: lnAddress }, btn);
+                    });
+                }
+
+                // Invoice form submission
+                const invoiceForm = document.getElementById('withdraw-form-invoice');
+                if (invoiceForm) {
+                    invoiceForm.addEventListener('submit', async function(e) {
+                        e.preventDefault();
+                        const invoice = document.getElementById('invoice').value.trim();
+                        const btn = document.getElementById('withdraw-btn-invoice');
+                        await handleWithdraw('/api/wallet/withdraw/invoice', { invoice: invoice }, btn);
+                    });
+                }
+            });
+        </script>
+        "#))
     }
 }

@@ -566,6 +566,14 @@ pub async fn wallet_page(
             .map(|u| (&u.id, &u.username, &u.auth_method))
     );
 
+    // Generate LNURL-withdraw string if user has balance
+    let lnurlw_string = if balance_sats > 0 {
+        let lnurlw_url = format!("{}/api/wallet/lnurlw", state.base_url);
+        crate::lnurl::encode_lnurl(&lnurlw_url).ok()
+    } else {
+        None
+    };
+
     // Build content
     let content = templates::wallet(
         balance_sats,
@@ -574,6 +582,7 @@ pub async fn wallet_page(
         params.success.as_deref(),
         params.amount,
         params.location.as_deref(),
+        lnurlw_string.as_deref(),
     );
     let username = get_navbar_username(&user.kind);
     let page = templates::base_with_user("My Wallet", content, username.as_deref());

@@ -147,6 +147,18 @@ async fn main() -> Result<()> {
         .route("/api/refill/trigger", post(handlers::manual_refill))
         // Custodial collection endpoint
         .route("/api/collect/:location_id", post(handlers::collect_sats))
+        // Custodial wallet withdrawal endpoints
+        .route("/api/wallet/withdraw", post(handlers::wallet_withdraw))
+        .route(
+            "/api/wallet/withdraw/invoice",
+            post(handlers::wallet_withdraw_invoice),
+        )
+        // Wallet LNURL-withdraw endpoints
+        .route("/api/wallet/lnurlw", get(handlers::wallet_lnurlw_request))
+        .route(
+            "/api/wallet/lnurlw/callback",
+            get(handlers::wallet_lnurlw_callback),
+        )
         // Withdrawal API endpoints (legacy Lightning)
         .route(
             "/api/withdraw/:location_id/ln-address",

@@ -1598,3 +1598,532 @@ pub async fn collect_sats(
     )
         .into_response()
 }
+
+// ============================================================================
+// Custodial Wallet Withdrawal Endpoint
+// ============================================================================
+
+/// Request body for wallet withdrawal
+#[derive(Debug, Deserialize)]
+pub struct WalletWithdrawRequest {
+    pub ln_address: String,
+}
+
+/// Response for wallet withdrawal endpoint
+#[derive(Debug, Serialize)]
+pub struct WalletWithdrawResponse {
+    pub success: bool,
+    pub withdrawn_sats: i64,
+    pub new_balance_sats: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+impl WalletWithdrawResponse {
+    fn success(withdrawn_sats: i64, new_balance_sats: i64) -> Self {
+        Self {
+            success: true,
+            withdrawn_sats,
+            new_balance_sats,
+            error: None,
+        }
+    }
+
+    fn error(message: impl Into<String>) -> Self {
+        Self {
+            success: false,
+            withdrawn_sats: 0,
+            new_balance_sats: 0,
+            error: Some(message.into()),
+        }
+    }
+}
+
+/// Withdraw sats from user's custodial balance via Lightning Address
+///
+/// POST /api/wallet/withdraw
+/// Body: { "ln_address": "user@domain.com" }
+///
+/// Withdraws the user's entire balance to the specified Lightning Address.
+pub async fn wallet_withdraw(
+    State(state): State<Arc<AppState>>,
+    user: CookieUser,
+    Json(payload): Json<WalletWithdrawRequest>,
+) -> impl IntoResponse {
+    tracing::info!(
+        "Wallet withdrawal request from user {} to {}",
+        user.user_id,
+        payload.ln_address
+    );
+
+    // Helper to build error response with cookie jar
+    let error_response = |jar: PrivateCookieJar, status: StatusCode, msg: &str| {
+        (jar, (status, Json(WalletWithdrawResponse::error(msg)))).into_response()
+    };
+
+    // Get user balance
+    let balance_msats = match state.db.get_user_balance(&user.user_id).await {
+        Ok(balance) => balance,
+        Err(e) => {
+            tracing::error!("Failed to get user balance: {}", e);
+            return error_response(
+                user.jar,
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to get balance. Please try again.",
+            );
+        }
+    };
+
+    // Check minimum withdrawal amount (at least 1 sat)
+    if balance_msats < 1000 {
+        return error_response(
+            user.jar,
+            StatusCode::BAD_REQUEST,
+            "Insufficient balance. You need at least 1 sat to withdraw.",
+        );
+    }
+
+    let balance_sats = balance_msats / 1000;
+    let withdraw_msats = balance_sats * 1000; // Round down to whole sats
+
+    // Resolve LN address and get invoice (do this before reserving balance)
+    let invoice = match lnurl::get_invoice_for_ln_address(&payload.ln_address, withdraw_msats).await
+    {
+        Ok(inv) => inv,
+        Err(lnurl::LnurlError::InvalidFormat(msg)) => {
+            return error_response(
+                user.jar,
+                StatusCode::BAD_REQUEST,
+                &format!("Invalid Lightning address: {}", msg),
+            );
+        }
+        Err(lnurl::LnurlError::AmountOutOfRange { min, max, .. }) => {
+            return error_response(
+                user.jar,
+                StatusCode::BAD_REQUEST,
+                &format!(
+                    "Amount {} sats is outside the allowed range ({}-{} sats)",
+                    balance_sats,
+                    min / 1000,
+                    max / 1000
+                ),
+            );
+        }
+        Err(e) => {
+            tracing::error!("LN address resolution failed: {}", e);
+            return error_response(
+                user.jar,
+                StatusCode::BAD_REQUEST,
+                "Could not resolve Lightning address. Please check and try again.",
+            );
+        }
+    };
+
+    // Create pending withdrawal to reserve the balance
+    let withdrawal_id = match state
+        .db
+        .create_pending_withdrawal(&user.user_id, withdraw_msats, &invoice)
+        .await
+    {
+        Ok(Some(id)) => id,
+        Ok(None) => {
+            return error_response(
+                user.jar,
+                StatusCode::CONFLICT,
+                "Insufficient balance. Please try again.",
+            );
+        }
+        Err(e) => {
+            tracing::error!("Failed to create pending withdrawal: {}", e);
+            return error_response(
+                user.jar,
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to process withdrawal. Please try again.",
+            );
+        }
+    };
+
+    let withdrawn_sats = withdraw_msats / 1000;
+
+    // Pay the invoice
+    if let Err(e) = state.lightning.pay_invoice(&invoice).await {
+        tracing::error!("Failed to pay invoice: {}", e);
+        // Mark withdrawal as failed - balance will be released
+        if let Err(e) = state.db.fail_pending_withdrawal(&withdrawal_id).await {
+            tracing::error!("Failed to mark withdrawal as failed: {}", e);
+        }
+        return error_response(
+            user.jar,
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Payment failed. Please try again.",
+        );
+    }
+
+    // Mark withdrawal as completed
+    if let Err(e) = state.db.complete_pending_withdrawal(&withdrawal_id).await {
+        tracing::error!("Failed to complete withdrawal: {}", e);
+        // Payment succeeded but we couldn't record it - this is bad but rare
+    }
+
+    // Get new balance
+    let new_balance_msats = state.db.get_user_balance(&user.user_id).await.unwrap_or(0);
+    let new_balance_sats = new_balance_msats / 1000;
+
+    tracing::info!(
+        "User {} withdrew {} sats to {}, new balance: {} sats",
+        user.user_id,
+        withdrawn_sats,
+        payload.ln_address,
+        new_balance_sats
+    );
+
+    (
+        user.jar,
+        Json(WalletWithdrawResponse::success(
+            withdrawn_sats,
+            new_balance_sats,
+        )),
+    )
+        .into_response()
+}
+
+/// Request body for wallet invoice withdrawal
+#[derive(Debug, Deserialize)]
+pub struct WalletWithdrawInvoiceRequest {
+    pub invoice: String,
+}
+
+/// Withdraw sats from user's custodial balance via pasted BOLT11 invoice
+///
+/// POST /api/wallet/withdraw/invoice
+/// Body: { "invoice": "lnbc..." }
+///
+/// Pays the provided invoice from the user's balance. The invoice amount
+/// must be less than or equal to the user's balance.
+pub async fn wallet_withdraw_invoice(
+    State(state): State<Arc<AppState>>,
+    user: CookieUser,
+    Json(payload): Json<WalletWithdrawInvoiceRequest>,
+) -> impl IntoResponse {
+    tracing::info!(
+        "Wallet invoice withdrawal request from user {}",
+        user.user_id
+    );
+
+    // Helper to build error response with cookie jar
+    let error_response = |jar: PrivateCookieJar, status: StatusCode, msg: &str| {
+        (jar, (status, Json(WalletWithdrawResponse::error(msg)))).into_response()
+    };
+
+    // Parse and validate the invoice
+    let invoice_str = payload.invoice.trim();
+    let invoice: lightning_invoice::Bolt11Invoice = match invoice_str.parse() {
+        Ok(inv) => inv,
+        Err(e) => {
+            tracing::warn!("Invalid invoice format: {}", e);
+            return error_response(
+                user.jar,
+                StatusCode::BAD_REQUEST,
+                "Invalid invoice format. Please paste a valid Lightning invoice.",
+            );
+        }
+    };
+
+    // Get invoice amount in msats
+    let invoice_msats = match invoice.amount_milli_satoshis() {
+        Some(msats) => msats as i64,
+        None => {
+            return error_response(
+                user.jar,
+                StatusCode::BAD_REQUEST,
+                "Invoice must specify an amount. Please create an invoice with a specific amount.",
+            );
+        }
+    };
+
+    if invoice_msats < 1000 {
+        return error_response(
+            user.jar,
+            StatusCode::BAD_REQUEST,
+            "Invoice amount must be at least 1 sat.",
+        );
+    }
+
+    let invoice_sats = invoice_msats / 1000;
+
+    // Get user balance
+    let balance_msats = match state.db.get_user_balance(&user.user_id).await {
+        Ok(balance) => balance,
+        Err(e) => {
+            tracing::error!("Failed to get user balance: {}", e);
+            return error_response(
+                user.jar,
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to get balance. Please try again.",
+            );
+        }
+    };
+
+    let balance_sats = balance_msats / 1000;
+
+    // Check if user has enough balance for the invoice amount
+    if invoice_msats > balance_msats {
+        return error_response(
+            user.jar,
+            StatusCode::BAD_REQUEST,
+            &format!(
+                "Insufficient balance. Invoice is for {} sats but you only have {} sats.",
+                invoice_sats, balance_sats
+            ),
+        );
+    }
+
+    // Create pending withdrawal to reserve the balance
+    let withdrawal_id = match state
+        .db
+        .create_pending_withdrawal(&user.user_id, invoice_msats, invoice_str)
+        .await
+    {
+        Ok(Some(id)) => id,
+        Ok(None) => {
+            return error_response(
+                user.jar,
+                StatusCode::CONFLICT,
+                "Insufficient balance. Please try again.",
+            );
+        }
+        Err(e) => {
+            tracing::error!("Failed to create pending withdrawal: {}", e);
+            return error_response(
+                user.jar,
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to process withdrawal. Please try again.",
+            );
+        }
+    };
+
+    let withdrawn_sats = invoice_sats;
+
+    // Pay the invoice
+    if let Err(e) = state.lightning.pay_invoice(invoice_str).await {
+        tracing::error!("Failed to pay invoice: {}", e);
+        // Mark withdrawal as failed - balance will be released
+        if let Err(e) = state.db.fail_pending_withdrawal(&withdrawal_id).await {
+            tracing::error!("Failed to mark withdrawal as failed: {}", e);
+        }
+        return error_response(
+            user.jar,
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Payment failed. Please try again.",
+        );
+    }
+
+    // Mark withdrawal as completed
+    if let Err(e) = state.db.complete_pending_withdrawal(&withdrawal_id).await {
+        tracing::error!("Failed to complete withdrawal: {}", e);
+        // Payment succeeded but we couldn't record it - this is bad but rare
+    }
+
+    // Get new balance
+    let new_balance_msats = state.db.get_user_balance(&user.user_id).await.unwrap_or(0);
+    let new_balance_sats = new_balance_msats / 1000;
+
+    tracing::info!(
+        "User {} withdrew {} sats via invoice, new balance: {} sats",
+        user.user_id,
+        withdrawn_sats,
+        new_balance_sats
+    );
+
+    (
+        user.jar,
+        Json(WalletWithdrawResponse::success(
+            withdrawn_sats,
+            new_balance_sats,
+        )),
+    )
+        .into_response()
+}
+
+// ============================================================================
+// Wallet LNURL-withdraw Endpoints (LUD-03)
+// ============================================================================
+
+/// LNURL-withdraw initial request for wallet balance
+///
+/// GET /api/wallet/lnurlw
+///
+/// Returns LNURL-withdraw parameters for the user's wallet balance.
+/// This allows users to withdraw by scanning a QR code with their Lightning wallet.
+pub async fn wallet_lnurlw_request(
+    State(state): State<Arc<AppState>>,
+    user: CookieUser,
+) -> impl IntoResponse {
+    tracing::info!("Wallet LNURL-withdraw request from user {}", user.user_id);
+
+    // Helper to build error response with cookie jar
+    let error_response = |jar: PrivateCookieJar, status: StatusCode, reason: &str| {
+        (jar, (status, Json(LnurlCallbackResponse::error(reason)))).into_response()
+    };
+
+    // Get user balance
+    let balance_msats = match state.db.get_user_balance(&user.user_id).await {
+        Ok(balance) => balance,
+        Err(e) => {
+            tracing::error!("Failed to get user balance: {}", e);
+            return error_response(
+                user.jar,
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to get balance.",
+            );
+        }
+    };
+
+    // Check minimum withdrawal amount
+    if balance_msats < 1000 {
+        return error_response(
+            user.jar,
+            StatusCode::BAD_REQUEST,
+            "Insufficient balance. You need at least 1 sat to withdraw.",
+        );
+    }
+
+    let balance_sats = balance_msats / 1000;
+    let withdraw_msats = balance_sats * 1000; // Round down to whole sats
+
+    // Build callback URL
+    let callback = format!("{}/api/wallet/lnurlw/callback", state.base_url);
+
+    // k1 is a unique identifier - we use user_id since each user can only have one pending withdrawal
+    let k1 = user.user_id.clone();
+
+    (
+        user.jar,
+        Json(LnurlWithdrawResponse {
+            tag: "withdrawRequest".to_string(),
+            callback,
+            k1,
+            default_description: format!("Withdraw {} sats from SatsHunt wallet", balance_sats),
+            min_withdrawable: withdraw_msats,
+            max_withdrawable: withdraw_msats,
+        }),
+    )
+        .into_response()
+}
+
+/// Query parameters for wallet LNURL-withdraw callback
+#[derive(Debug, Deserialize)]
+pub struct WalletLnurlCallbackParams {
+    /// k1 from initial request (user_id)
+    pub k1: String,
+    /// BOLT11 invoice from wallet
+    pub pr: String,
+}
+
+/// LNURL-withdraw callback for wallet balance
+///
+/// GET /api/wallet/lnurlw/callback?k1={user_id}&pr={invoice}
+///
+/// Called by the user's Lightning wallet with the invoice to pay.
+pub async fn wallet_lnurlw_callback(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<WalletLnurlCallbackParams>,
+) -> Result<Json<LnurlCallbackResponse>, (StatusCode, Json<LnurlCallbackResponse>)> {
+    tracing::info!("Wallet LNURL-withdraw callback for user {}", params.k1);
+
+    let user_id = &params.k1;
+    let invoice = params.pr.trim();
+
+    // Parse the invoice to get the amount
+    let parsed_invoice: lightning_invoice::Bolt11Invoice = invoice.parse().map_err(|e| {
+        tracing::error!("Failed to parse invoice: {}", e);
+        (
+            StatusCode::BAD_REQUEST,
+            Json(LnurlCallbackResponse::error(
+                "Invalid invoice format. Must be a valid Lightning invoice.",
+            )),
+        )
+    })?;
+
+    // Get the invoice amount (we don't support amountless invoices)
+    let invoice_msats = parsed_invoice.amount_milli_satoshis().ok_or_else(|| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(LnurlCallbackResponse::error(
+                "Invoice must specify an amount.",
+            )),
+        )
+    })? as i64;
+
+    // Get user balance (already accounts for pending withdrawals)
+    let balance_msats = state.db.get_user_balance(user_id).await.map_err(|e| {
+        tracing::error!("Failed to get user balance: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(LnurlCallbackResponse::error("Failed to get balance.")),
+        )
+    })?;
+
+    // Check if user has enough balance
+    if invoice_msats > balance_msats {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(LnurlCallbackResponse::error(
+                "Invoice amount exceeds available balance.",
+            )),
+        ));
+    }
+
+    // Create pending withdrawal to reserve the balance
+    let withdrawal_id = state
+        .db
+        .create_pending_withdrawal(user_id, invoice_msats, invoice)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to create pending withdrawal: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(LnurlCallbackResponse::error(
+                    "Failed to process withdrawal. Please try again.",
+                )),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::CONFLICT,
+                Json(LnurlCallbackResponse::error(
+                    "Insufficient balance. Please try again.",
+                )),
+            )
+        })?;
+
+    // Pay the invoice
+    if let Err(e) = state.lightning.pay_invoice(invoice).await {
+        tracing::error!("Failed to pay invoice: {}", e);
+        // Mark withdrawal as failed to release the reserved balance
+        if let Err(e) = state.db.fail_pending_withdrawal(&withdrawal_id).await {
+            tracing::error!("Failed to mark withdrawal as failed: {}", e);
+        }
+        return Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(LnurlCallbackResponse::error(
+                "Payment failed. Please try again.",
+            )),
+        ));
+    }
+
+    // Mark withdrawal as completed
+    if let Err(e) = state.db.complete_pending_withdrawal(&withdrawal_id).await {
+        tracing::error!("Failed to mark withdrawal as completed: {}", e);
+        // Payment succeeded but we couldn't update the status - log but don't fail
+    }
+
+    let withdrawn_sats = invoice_msats / 1000;
+    tracing::info!(
+        "Successful wallet LNURL-withdraw for user {}: {} sats",
+        user_id,
+        withdrawn_sats
+    );
+
+    Ok(Json(LnurlCallbackResponse::ok()))
+}
