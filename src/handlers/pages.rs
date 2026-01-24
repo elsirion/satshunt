@@ -117,6 +117,18 @@ pub async fn location_detail_page(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
+    // Get location's donation pool balance and donation history
+    let donation_pool_msats = state
+        .db
+        .get_location_donation_pool_balance(&id)
+        .await
+        .unwrap_or(0);
+    let donations = state
+        .db
+        .list_location_donations(&id)
+        .await
+        .unwrap_or_default();
+
     let current_user_id = Some(user.user_id.as_str());
     let username = get_navbar_username(&user.kind);
 
@@ -131,6 +143,8 @@ pub async fn location_detail_page(
         params.success.as_deref(),
         params.amount,
         &state.base_url,
+        donation_pool_msats / 1000,
+        &donations,
     );
     let page = templates::base_with_user(&location.name, content, username.as_deref());
 
@@ -165,18 +179,28 @@ pub async fn donate_page(
     user: CookieUser,
     State(state): State<Arc<AppState>>,
 ) -> Result<Html<String>, StatusCode> {
-    let pool = state.db.get_donation_pool().await.map_err(|e| {
-        tracing::error!("Failed to get donation pool: {}", e);
+    // Get total pool balance across all locations
+    let locations = state.db.list_active_locations().await.map_err(|e| {
+        tracing::error!("Failed to list locations: {}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    let completed_donations = state.db.list_completed_donations().await.map_err(|e| {
-        tracing::error!("Failed to get completed donations: {}", e);
+    let mut total_pool_msats = 0i64;
+    for location in &locations {
+        total_pool_msats += state
+            .db
+            .get_location_donation_pool_balance(&location.id)
+            .await
+            .unwrap_or(0);
+    }
+
+    let received_donations = state.db.list_all_received_donations().await.map_err(|e| {
+        tracing::error!("Failed to get received donations: {}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
     let username = get_navbar_username(&user.kind);
-    let content = templates::donate(&pool, &completed_donations);
+    let content = templates::donate(total_pool_msats / 1000, locations.len(), &received_donations);
     let page = templates::base_with_user("Donate", content, username.as_deref());
 
     Ok(Html(page.into_string()))

@@ -1,5 +1,5 @@
 use crate::models::{
-    AuthMethod, DonationPool, Location, NfcCard, PendingDonation, Photo, Refill, Scan, Stats, User,
+    AuthMethod, Donation, Location, LocationPoolDebit, NfcCard, Photo, Refill, Scan, Stats, User,
     UserTransaction, WithdrawalStatus,
 };
 use anyhow::Result;
@@ -273,42 +273,179 @@ impl Database {
             .map_err(Into::into)
     }
 
-    // Donation pool operations
-    pub async fn get_donation_pool(&self) -> Result<DonationPool> {
-        sqlx::query_as::<_, DonationPool>("SELECT * FROM donation_pool WHERE id = 1")
-            .fetch_one(&self.pool)
-            .await
-            .map_err(Into::into)
-    }
+    // =========================================================================
+    // Donation operations (unified donations table)
+    // =========================================================================
 
-    #[allow(dead_code)]
-    pub async fn update_donation_pool(&self, msats: i64) -> Result<SqliteQueryResult> {
-        sqlx::query("UPDATE donation_pool SET total_msats = ?, updated_at = ? WHERE id = 1")
-            .bind(msats)
-            .bind(Utc::now())
-            .execute(&self.pool)
-            .await
-            .map_err(Into::into)
-    }
+    /// Create a new donation when an invoice is generated
+    pub async fn create_donation(
+        &self,
+        invoice: String,
+        amount_msats: i64,
+        location_id: Option<&str>,
+    ) -> Result<Donation> {
+        let id = Uuid::new_v4().to_string();
+        let now = Utc::now();
 
-    pub async fn add_to_donation_pool(&self, msats: i64) -> Result<DonationPool> {
-        sqlx::query_as::<_, DonationPool>(
-            "UPDATE donation_pool SET total_msats = total_msats + ?, updated_at = ? WHERE id = 1 RETURNING *"
+        sqlx::query_as::<_, Donation>(
+            r#"
+            INSERT INTO donations (id, location_id, invoice, amount_msats, status, created_at)
+            VALUES (?, ?, ?, ?, 'created', ?)
+            RETURNING *
+            "#,
         )
-        .bind(msats)
-        .bind(Utc::now())
+        .bind(&id)
+        .bind(location_id)
+        .bind(&invoice)
+        .bind(amount_msats)
+        .bind(now)
         .fetch_one(&self.pool)
         .await
         .map_err(Into::into)
     }
 
-    pub async fn subtract_from_donation_pool(&self, msats: i64) -> Result<DonationPool> {
-        sqlx::query_as::<_, DonationPool>(
-            "UPDATE donation_pool SET total_msats = total_msats - ?, updated_at = ? WHERE id = 1 RETURNING *"
+    /// Get a donation by invoice
+    pub async fn get_donation_by_invoice(&self, invoice: &str) -> Result<Option<Donation>> {
+        sqlx::query_as::<_, Donation>("SELECT * FROM donations WHERE invoice = ?")
+            .bind(invoice)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(Into::into)
+    }
+
+    /// Mark a donation as received.
+    /// For global donations (location_id = NULL), splits the amount equally among all active locations.
+    pub async fn mark_donation_received(&self, invoice: &str) -> Result<Donation> {
+        let now = Utc::now();
+
+        // First, get the donation to check if it's global
+        let donation: Donation = sqlx::query_as(
+            "UPDATE donations SET status = 'received', received_at = ? WHERE invoice = ? RETURNING *",
         )
-        .bind(msats)
-        .bind(Utc::now())
+        .bind(now)
+        .bind(invoice)
         .fetch_one(&self.pool)
+        .await?;
+
+        // If it's a global donation, split it among all active locations
+        if donation.location_id.is_none() {
+            let locations = self.list_active_locations().await?;
+            if !locations.is_empty() {
+                let amount_per_location = donation.amount_msats / locations.len() as i64;
+                if amount_per_location > 0 {
+                    for location in &locations {
+                        let split_id = Uuid::new_v4().to_string();
+                        sqlx::query(
+                            "INSERT INTO donations (id, location_id, invoice, amount_msats, status, created_at, received_at) \
+                             VALUES (?, ?, ?, ?, 'received', ?, ?)",
+                        )
+                        .bind(&split_id)
+                        .bind(&location.id)
+                        .bind(format!("{}-split-{}", invoice, location.id))
+                        .bind(amount_per_location)
+                        .bind(now)
+                        .bind(now)
+                        .execute(&self.pool)
+                        .await?;
+                    }
+                }
+            }
+        }
+
+        Ok(donation)
+    }
+
+    /// Mark a donation as timed out
+    #[allow(dead_code)]
+    pub async fn mark_donation_timed_out(&self, invoice: &str) -> Result<Donation> {
+        sqlx::query_as::<_, Donation>(
+            "UPDATE donations SET status = 'timed_out' WHERE invoice = ? RETURNING *",
+        )
+        .bind(invoice)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(Into::into)
+    }
+
+    /// List all pending (created) donations
+    pub async fn list_pending_donations(&self) -> Result<Vec<Donation>> {
+        sqlx::query_as::<_, Donation>(
+            "SELECT * FROM donations WHERE status = 'created' ORDER BY created_at ASC",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(Into::into)
+    }
+
+
+    /// Get the balance of a location's donation pool
+    /// (sum of received location donations minus debits)
+    pub async fn get_location_donation_pool_balance(&self, location_id: &str) -> Result<i64> {
+        // Sum of received donations for this location
+        let donations: (i64,) = sqlx::query_as(
+            "SELECT COALESCE(SUM(amount_msats), 0) FROM donations WHERE location_id = ? AND status = 'received'",
+        )
+        .bind(location_id)
+        .fetch_one(&self.pool)
+        .await?;
+
+        // Sum of debits from this location's pool
+        let debits: (i64,) = sqlx::query_as(
+            "SELECT COALESCE(SUM(amount_msats), 0) FROM location_pool_debits WHERE location_id = ?",
+        )
+        .bind(location_id)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(donations.0 - debits.0)
+    }
+
+    /// Record a debit from a location's donation pool (when refills use the pool)
+    pub async fn record_location_pool_debit(
+        &self,
+        location_id: &str,
+        amount_msats: i64,
+    ) -> Result<LocationPoolDebit> {
+        let id = Uuid::new_v4().to_string();
+        let now = Utc::now();
+
+        sqlx::query_as::<_, LocationPoolDebit>(
+            r#"
+            INSERT INTO location_pool_debits (id, location_id, amount_msats, created_at)
+            VALUES (?, ?, ?, ?)
+            RETURNING *
+            "#,
+        )
+        .bind(&id)
+        .bind(location_id)
+        .bind(amount_msats)
+        .bind(now)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(Into::into)
+    }
+
+    /// List all received donations for a location (for display on location page)
+    pub async fn list_location_donations(&self, location_id: &str) -> Result<Vec<Donation>> {
+        sqlx::query_as::<_, Donation>(
+            r#"
+            SELECT * FROM donations
+            WHERE location_id = ? AND status = 'received'
+            ORDER BY received_at DESC
+            "#,
+        )
+        .bind(location_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(Into::into)
+    }
+
+    /// List all received donations (global and location-specific)
+    pub async fn list_all_received_donations(&self) -> Result<Vec<Donation>> {
+        sqlx::query_as::<_, Donation>(
+            "SELECT * FROM donations WHERE status = 'received' ORDER BY received_at DESC",
+        )
+        .fetch_all(&self.pool)
         .await
         .map_err(Into::into)
     }
@@ -369,13 +506,26 @@ impl Database {
             .fetch_one(&self.pool)
             .await?;
 
-        let donation_pool = self.get_donation_pool().await?;
+        // Total donation pool = sum of all location-specific donations minus debits
+        let total_donations: (i64,) = sqlx::query_as(
+            "SELECT COALESCE(SUM(amount_msats), 0) FROM donations WHERE location_id IS NOT NULL AND status = 'received'",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+
+        let total_debits: (i64,) = sqlx::query_as(
+            "SELECT COALESCE(SUM(amount_msats), 0) FROM location_pool_debits",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+
+        let total_pool_msats = total_donations.0 - total_debits.0;
 
         Ok(Stats {
             total_locations,
             total_sats_available: total_msats_available.unwrap_or(0) / 1000, // Convert to sats for display
             total_scans,
-            donation_pool_sats: donation_pool.total_sats(), // Use helper method
+            donation_pool_sats: total_pool_msats / 1000,
         })
     }
 
@@ -578,81 +728,6 @@ impl Database {
         .map_err(Into::into)
     }
 
-    // Pending donation operations
-
-    /// Create a new pending donation when an invoice is generated
-    pub async fn create_pending_donation(
-        &self,
-        invoice: String,
-        amount_msats: i64,
-    ) -> Result<PendingDonation> {
-        let id = Uuid::new_v4().to_string();
-        let now = Utc::now();
-
-        sqlx::query_as::<_, PendingDonation>(
-            r#"
-            INSERT INTO pending_donations (id, invoice, amount_msats, status, created_at)
-            VALUES (?, ?, ?, 'pending', ?)
-            RETURNING *
-            "#,
-        )
-        .bind(&id)
-        .bind(&invoice)
-        .bind(amount_msats)
-        .bind(now)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(Into::into)
-    }
-
-    /// Get a pending donation by invoice string
-    pub async fn get_pending_donation_by_invoice(
-        &self,
-        invoice: &str,
-    ) -> Result<Option<PendingDonation>> {
-        sqlx::query_as::<_, PendingDonation>("SELECT * FROM pending_donations WHERE invoice = ?")
-            .bind(invoice)
-            .fetch_optional(&self.pool)
-            .await
-            .map_err(Into::into)
-    }
-
-    /// List all pending donations (status = 'pending')
-    pub async fn list_pending_donations(&self) -> Result<Vec<PendingDonation>> {
-        sqlx::query_as::<_, PendingDonation>(
-            "SELECT * FROM pending_donations WHERE status = 'pending' ORDER BY created_at ASC",
-        )
-        .fetch_all(&self.pool)
-        .await
-        .map_err(Into::into)
-    }
-
-    /// Mark a pending donation as completed
-    pub async fn complete_pending_donation(&self, invoice: &str) -> Result<PendingDonation> {
-        sqlx::query_as::<_, PendingDonation>(
-            r#"
-            UPDATE pending_donations
-            SET status = 'completed', completed_at = ?
-            WHERE invoice = ?
-            RETURNING *
-            "#,
-        )
-        .bind(Utc::now())
-        .bind(invoice)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(Into::into)
-    }
-
-    /// List completed donations (most recent first, limited to 50)
-    pub async fn list_completed_donations(&self) -> Result<Vec<PendingDonation>> {
-        sqlx::query_as::<_, PendingDonation>(
-            "SELECT * FROM pending_donations WHERE status = 'completed' ORDER BY completed_at DESC LIMIT 50",
-        )
-        .fetch_all(&self.pool)
-        .await
-        .map_err(Into::into)
-    }
 
     // ========================================================================
     // Anonymous User and Custodial Wallet Operations

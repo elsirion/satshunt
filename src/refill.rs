@@ -72,37 +72,20 @@ impl RefillService {
     }
 
     /// Refill all active locations that are due for a refill
-    /// Uses formula: refill_per_location = (pool * 0.00016) / num_locations per minute
-    /// With slowdown as location fills up
+    ///
+    /// Each location refills from its own donation pool.
+    /// Formula: refill_rate = pool_balance * 0.00016 per minute (with slowdown as location fills up)
     async fn refill_locations(&self) -> Result<()> {
         let locations = self.db.list_active_locations().await?;
-        let num_locations = locations.len();
 
-        if num_locations == 0 {
+        if locations.is_empty() {
             return Ok(()); // No locations to refill
         }
 
-        let donation_pool = self.db.get_donation_pool().await?;
         let now = Utc::now();
-        let mut total_refilled_msats = 0i64;
-
-        // Calculate base refill rate per location per minute based on pool size
-        // Formula: (pool * percentage) / num_locations
-        let base_msats_per_location_per_minute = ((donation_pool.total_msats as f64
-            * self.config.pool_percentage_per_minute)
-            / num_locations as f64)
-            .round() as i64;
-
-        tracing::debug!(
-            "Base refill rate: {} msats per location per minute (pool: {} msats, locations: {})",
-            base_msats_per_location_per_minute,
-            donation_pool.total_msats,
-            num_locations
-        );
 
         for location in locations {
             // Calculate how much time has passed since last activity (refill or withdraw)
-            // We use the smaller delta (more recent activity) to avoid gaming
             let minutes_since_activity = (now - location.last_activity_at()).num_minutes();
 
             if minutes_since_activity < 1 {
@@ -111,22 +94,49 @@ impl RefillService {
 
             let max_msats = self.config.max_sats_per_location * 1000;
 
-            // Apply slowdown factor based on how full the location is
-            let slowdown_factor =
-                Self::calculate_slowdown_factor(location.current_msats, max_msats);
-            let adjusted_rate_msats =
-                (base_msats_per_location_per_minute as f64 * slowdown_factor).round() as i64;
-
-            // Calculate refill amount based on minutes elapsed and adjusted rate
-            let refill_amount_msats = minutes_since_activity * adjusted_rate_msats;
-            let new_balance_msats = (location.current_msats + refill_amount_msats).min(max_msats);
-            let actual_refill_msats = new_balance_msats - location.current_msats;
-
-            if actual_refill_msats <= 0 {
+            // Calculate max refill possible before hitting cap
+            let max_refill_msats = max_msats - location.current_msats;
+            if max_refill_msats <= 0 {
                 continue; // Already at max
             }
 
+            // Get location's donation pool balance
+            let pool_balance_msats = self
+                .db
+                .get_location_donation_pool_balance(&location.id)
+                .await
+                .unwrap_or(0);
+
+            if pool_balance_msats <= 0 {
+                continue; // No funds in pool
+            }
+
+            // Apply slowdown factor based on how full the location is
+            let slowdown_factor =
+                Self::calculate_slowdown_factor(location.current_msats, max_msats);
+
+            // Calculate refill rate: pool * percentage * slowdown
+            let rate_msats = (pool_balance_msats as f64
+                * self.config.pool_percentage_per_minute
+                * slowdown_factor)
+                .round() as i64;
+
+            // Calculate refill amount based on time elapsed
+            let refill_msats = (minutes_since_activity * rate_msats)
+                .min(pool_balance_msats)
+                .min(max_refill_msats);
+
+            if refill_msats <= 0 {
+                continue; // Nothing to refill
+            }
+
             let balance_before = location.current_msats;
+            let new_balance_msats = location.current_msats + refill_msats;
+
+            // Record debit from location's pool
+            self.db
+                .record_location_pool_debit(&location.id, refill_msats)
+                .await?;
 
             // Update location balance
             self.db
@@ -138,38 +148,22 @@ impl RefillService {
             self.db
                 .record_refill(
                     &location.id,
-                    actual_refill_msats,
+                    refill_msats,
                     balance_before,
                     new_balance_msats,
-                    base_msats_per_location_per_minute,
+                    rate_msats,
                     slowdown_factor,
                 )
                 .await?;
 
-            total_refilled_msats += actual_refill_msats;
-
             tracing::info!(
-                "Refilled location {} with {} sats (now at {}/{}, rate: {} sats/min, slowdown: {:.2}x)",
+                "Refilled location {} with {} sats from pool (now at {}/{}, pool: {} sats, slowdown: {:.2}x)",
                 location.name,
-                actual_refill_msats / 1000,
+                refill_msats / 1000,
                 new_balance_msats / 1000,
                 self.config.max_sats_per_location,
-                adjusted_rate_msats / 1000,
+                (pool_balance_msats - refill_msats) / 1000,
                 slowdown_factor
-            );
-        }
-
-        // Subtract from donation pool
-        if total_refilled_msats > 0 {
-            let new_pool = self
-                .db
-                .subtract_from_donation_pool(total_refilled_msats)
-                .await?;
-            tracing::info!(
-                "Total refilled: {} sats across {} locations, pool now: {} sats",
-                total_refilled_msats / 1000,
-                num_locations,
-                new_pool.total_msats / 1000
             );
         }
 

@@ -8,6 +8,8 @@ use tokio::sync::{mpsc, Mutex};
 pub struct NewDonation {
     pub invoice: String,
     pub amount_msats: i64,
+    /// Location ID for direct location donations (None = global donation)
+    pub location_id: Option<String>,
 }
 
 /// Background service that tracks pending donations and credits the pool when payments arrive.
@@ -46,13 +48,14 @@ impl DonationService {
         // Load existing pending donations from database
         match self.db.list_pending_donations().await {
             Ok(pending) => {
-                tracing::info!(
-                    "Loaded {} pending donations from database",
-                    pending.len()
-                );
+                tracing::info!("Loaded {} pending donations from database", pending.len());
                 for donation in pending {
                     self.clone()
-                        .spawn_await_task(donation.invoice, donation.amount_msats)
+                        .spawn_await_task(
+                            donation.invoice,
+                            donation.amount_msats,
+                            donation.location_id,
+                        )
                         .await;
                 }
             }
@@ -75,18 +78,32 @@ impl DonationService {
         // Listen for new donations
         while let Some(donation) = receiver.recv().await {
             self.clone()
-                .spawn_await_task(donation.invoice, donation.amount_msats)
+                .spawn_await_task(
+                    donation.invoice,
+                    donation.amount_msats,
+                    donation.location_id,
+                )
                 .await;
         }
     }
 
     /// Spawn a task to await payment for a specific invoice
-    async fn spawn_await_task(self: Arc<Self>, invoice: String, amount_msats: i64) {
+    /// When payment is received, the donation is marked as 'received' in the database.
+    /// Pool balances are calculated from received donations, so no separate pool update is needed.
+    async fn spawn_await_task(
+        self: Arc<Self>,
+        invoice: String,
+        amount_msats: i64,
+        location_id: Option<String>,
+    ) {
         // Check if already tracking this invoice
         {
             let mut active = self.active_invoices.lock().await;
             if active.contains(&invoice) {
-                tracing::debug!("Already tracking invoice, skipping: {}", &invoice[..20.min(invoice.len())]);
+                tracing::debug!(
+                    "Already tracking invoice, skipping: {}",
+                    &invoice[..20.min(invoice.len())]
+                );
                 return;
             }
             active.insert(invoice.clone());
@@ -96,10 +113,7 @@ impl DonationService {
         let invoice_clone = invoice.clone();
 
         tokio::spawn(async move {
-            tracing::info!(
-                "Awaiting payment for {} sats invoice",
-                amount_msats / 1000
-            );
+            tracing::info!("Awaiting payment for {} sats invoice", amount_msats / 1000);
 
             match service.lightning.await_payment(&invoice_clone).await {
                 Ok(()) => {
@@ -108,21 +122,54 @@ impl DonationService {
                         amount_msats / 1000
                     );
 
-                    // Mark as completed in database
-                    if let Err(e) = service.db.complete_pending_donation(&invoice_clone).await {
-                        tracing::error!("Failed to complete pending donation: {}", e);
-                    }
-
-                    // Add to donation pool
-                    match service.db.add_to_donation_pool(amount_msats).await {
-                        Ok(pool) => {
-                            tracing::info!(
-                                "Donation pool updated. New total: {} sats",
-                                pool.total_sats()
-                            );
+                    // Mark donation as received in database
+                    // This automatically updates the pool balance (calculated from received donations)
+                    match service.db.mark_donation_received(&invoice_clone).await {
+                        Ok(donation) => {
+                            if let Some(loc_id) = &location_id {
+                                // Get updated location pool balance
+                                match service.db.get_location_donation_pool_balance(loc_id).await {
+                                    Ok(balance_msats) => {
+                                        tracing::info!(
+                                            "Location donation received (id: {}). Pool balance: {} sats",
+                                            donation.id,
+                                            balance_msats / 1000
+                                        );
+                                    }
+                                    Err(e) => {
+                                        tracing::warn!(
+                                            "Donation received but failed to get balance: {}",
+                                            e
+                                        );
+                                    }
+                                }
+                            } else {
+                                // Global donation was split among all locations
+                                match service.db.list_active_locations().await {
+                                    Ok(locations) => {
+                                        let per_location = if locations.is_empty() {
+                                            0
+                                        } else {
+                                            donation.amount_msats / locations.len() as i64 / 1000
+                                        };
+                                        tracing::info!(
+                                            "Global donation received (id: {}). Split {} sats each to {} locations",
+                                            donation.id,
+                                            per_location,
+                                            locations.len()
+                                        );
+                                    }
+                                    Err(e) => {
+                                        tracing::warn!(
+                                            "Donation received but failed to list locations: {}",
+                                            e
+                                        );
+                                    }
+                                }
+                            }
                         }
                         Err(e) => {
-                            tracing::error!("Failed to add to donation pool: {}", e);
+                            tracing::error!("Failed to mark donation as received: {}", e);
                         }
                     }
                 }

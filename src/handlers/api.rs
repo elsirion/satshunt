@@ -91,6 +91,9 @@ pub async fn get_stats(
 #[derive(serde::Deserialize)]
 pub struct DonationInvoiceRequest {
     pub amount: i64,
+    /// Optional location ID for direct location donations.
+    /// If None, the donation goes to the global pool (split among all locations).
+    pub location_id: Option<String>,
 }
 
 /// Generate a Lightning invoice for donation
@@ -103,10 +106,41 @@ pub async fn create_donation_invoice(
         return Err(StatusCode::BAD_REQUEST);
     }
 
-    tracing::info!("Creating invoice for donation of {} sats", payload.amount);
+    // If location_id is provided, verify it exists
+    let location_name = if let Some(ref loc_id) = payload.location_id {
+        let location = state
+            .db
+            .get_location(loc_id)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to get location: {}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?
+            .ok_or_else(|| {
+                tracing::error!("Location not found: {}", loc_id);
+                StatusCode::NOT_FOUND
+            })?;
+        Some(location.name)
+    } else {
+        None
+    };
+
+    let description = if let Some(ref name) = location_name {
+        tracing::info!(
+            "Creating invoice for {} sats donation to location '{}'",
+            payload.amount,
+            name
+        );
+        format!("SatsHunt donation to '{}': {} sats", name, payload.amount)
+    } else {
+        tracing::info!(
+            "Creating invoice for {} sats global donation",
+            payload.amount
+        );
+        format!("SatsHunt donation: {} sats", payload.amount)
+    };
 
     // Generate Lightning invoice
-    let description = format!("SatsHunt donation: {} sats", payload.amount);
     let invoice = state
         .lightning
         .create_invoice(payload.amount as u64, &description)
@@ -118,13 +152,13 @@ pub async fn create_donation_invoice(
 
     let amount_msats = payload.amount * 1000;
 
-    // Store pending donation in database for resilient tracking
+    // Store donation in database for resilient tracking
     state
         .db
-        .create_pending_donation(invoice.clone(), amount_msats)
+        .create_donation(invoice.clone(), amount_msats, payload.location_id.as_deref())
         .await
         .map_err(|e| {
-            tracing::error!("Failed to create pending donation: {}", e);
+            tracing::error!("Failed to create donation: {}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -132,6 +166,7 @@ pub async fn create_donation_invoice(
     if let Err(e) = state.donation_sender.send(NewDonation {
         invoice: invoice.clone(),
         amount_msats,
+        location_id: payload.location_id.clone(),
     }) {
         tracing::error!("Failed to notify donation service: {}", e);
         // Don't fail the request - the donation service will pick it up on next restart
@@ -206,30 +241,79 @@ pub async fn wait_for_donation(
     const POLL_INTERVAL_MS: u64 = 2000;
 
     for poll in 0..MAX_POLLS {
-        // Check if the pending donation is completed
-        match state.db.get_pending_donation_by_invoice(invoice).await {
-            Ok(Some(donation)) if donation.is_completed() => {
+        // Check if the donation is received
+        match state.db.get_donation_by_invoice(invoice).await {
+            Ok(Some(donation)) if donation.is_received() => {
                 tracing::info!("Payment confirmed for {} sats donation", amount);
 
-                // Get current pool total
-                let pool = state.db.get_donation_pool().await.map_err(|e| {
-                    tracing::error!("Failed to get donation pool: {}", e);
-                    StatusCode::INTERNAL_SERVER_ERROR
-                })?;
+                // Generate response based on whether it's a location or global donation
+                let html = if let Some(ref loc_id) = donation.location_id {
+                    // Location-specific donation
+                    let location = state.db.get_location(loc_id).await.map_err(|e| {
+                        tracing::error!("Failed to get location: {}", e);
+                        StatusCode::INTERNAL_SERVER_ERROR
+                    })?;
 
-                // Return success HTML fragment for HTMX to swap in
-                let html = format!(
-                    r#"<div id="paymentStatus" class="bg-green-900 border border-green-700 text-green-200 px-4 py-3 rounded-lg">
-                        <p class="font-semibold">✓ Payment received!</p>
-                        <p class="text-sm mt-1">Thank you for donating {} sats!</p>
-                    </div>
-                    <div class="text-center mt-4">
-                        <p class="text-sm text-slate-400 mb-1">New Pool Total</p>
-                        <p class="text-4xl font-bold text-yellow-400">{} ⚡</p>
-                    </div>"#,
-                    amount,
-                    pool.total_sats()
-                );
+                    if let Some(location) = location {
+                        // Get pool balance from the donations table
+                        let pool_balance_msats = state
+                            .db
+                            .get_location_donation_pool_balance(loc_id)
+                            .await
+                            .unwrap_or(0);
+
+                        format!(
+                            r#"<div id="paymentStatus" class="bg-green-900 border border-green-700 text-green-200 px-4 py-3 rounded-lg">
+                                <p class="font-semibold">✓ Payment received!</p>
+                                <p class="text-sm mt-1">Thank you for donating {} sats to '{}'!</p>
+                            </div>
+                            <div class="text-center mt-4">
+                                <p class="text-sm text-slate-400 mb-1">{}'s Donation Pool</p>
+                                <p class="text-4xl font-bold text-yellow-400">{} ⚡</p>
+                            </div>"#,
+                            amount,
+                            location.name,
+                            location.name,
+                            pool_balance_msats / 1000
+                        )
+                    } else {
+                        // Location was deleted, fall back to generic message
+                        format!(
+                            r#"<div id="paymentStatus" class="bg-green-900 border border-green-700 text-green-200 px-4 py-3 rounded-lg">
+                                <p class="font-semibold">✓ Payment received!</p>
+                                <p class="text-sm mt-1">Thank you for donating {} sats!</p>
+                            </div>"#,
+                            amount
+                        )
+                    }
+                } else {
+                    // Global donation - was split among all locations
+                    let locations = state.db.list_active_locations().await.map_err(|e| {
+                        tracing::error!("Failed to list locations: {}", e);
+                        StatusCode::INTERNAL_SERVER_ERROR
+                    })?;
+
+                    let num_locations = locations.len();
+                    let per_location = if num_locations > 0 {
+                        amount / num_locations as i64
+                    } else {
+                        0
+                    };
+
+                    format!(
+                        r#"<div id="paymentStatus" class="bg-green-900 border border-green-700 text-green-200 px-4 py-3 rounded-lg">
+                            <p class="font-semibold">✓ Payment received!</p>
+                            <p class="text-sm mt-1">Thank you for donating {} sats!</p>
+                        </div>
+                        <div class="text-center mt-4">
+                            <p class="text-sm text-slate-400 mb-1">Split Among {} Locations</p>
+                            <p class="text-4xl font-bold text-yellow-400">{} ⚡ each</p>
+                        </div>"#,
+                        amount,
+                        num_locations,
+                        per_location
+                    )
+                };
 
                 return Ok(axum::response::Html(html));
             }
@@ -547,18 +631,12 @@ pub async fn delete_location(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    // If location has msats, return them to donation pool
+    // If location has msats, they are lost when the location is deleted
+    // (The donation pool balance will remain for the deleted location but won't be used)
     if location.current_msats > 0 {
-        state
-            .db
-            .add_to_donation_pool(location.current_msats)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to return msats to donation pool: {}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?;
         tracing::info!(
-            "Returned {} sats to donation pool from deleted location",
+            "Location {} deleted with {} sats (returned to its donation pool)",
+            location.name,
             location.current_sats()
         );
     }
@@ -602,8 +680,8 @@ fn calculate_slowdown_factor(current_msats: i64, max_msats: i64) -> f64 {
 }
 
 /// Manually trigger the refill process for all locations
-/// Uses formula: refill_per_location = (pool * 0.00016) / num_locations per minute
-/// With slowdown as location fills up
+/// Each location refills from its own donation pool
+/// Formula: refill_rate = pool_balance * 0.00016 per minute (with slowdown as location fills up)
 pub async fn manual_refill(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
@@ -614,8 +692,7 @@ pub async fn manual_refill(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    let num_locations = locations.len();
-    if num_locations == 0 {
+    if locations.is_empty() {
         return Ok(Json(json!({
             "success": true,
             "locations_refilled": 0,
@@ -624,32 +701,14 @@ pub async fn manual_refill(
         })));
     }
 
-    let donation_pool = state.db.get_donation_pool().await.map_err(|e| {
-        tracing::error!("Failed to get donation pool: {}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
-
     let now = Utc::now();
     let mut total_refilled_msats = 0i64;
     let mut locations_refilled = 0;
 
-    // Calculate base refill rate per location per minute based on pool size
-    // Formula: (pool * 0.016%) / num_locations
     const POOL_PERCENTAGE_PER_MINUTE: f64 = 0.00016;
-    let base_msats_per_location_per_minute =
-        ((donation_pool.total_msats as f64 * POOL_PERCENTAGE_PER_MINUTE) / num_locations as f64)
-            .round() as i64;
-
-    tracing::info!(
-        "Base refill rate: {} sats per location per minute (pool: {} sats, locations: {})",
-        base_msats_per_location_per_minute / 1000,
-        donation_pool.total_msats / 1000,
-        num_locations
-    );
 
     for location in locations {
-        // Calculate how much time has passed since last activity (refill or withdraw)
-        // We use the smaller delta (more recent activity) to avoid gaming
+        // Calculate how much time has passed since last activity
         let minutes_since_activity = (now - location.last_activity_at()).num_minutes();
 
         if minutes_since_activity < 1 {
@@ -657,22 +716,52 @@ pub async fn manual_refill(
         }
 
         let max_msats = state.max_sats_per_location * 1000;
+        let max_refill_msats = max_msats - location.current_msats;
 
-        // Apply slowdown factor based on how full the location is
-        let slowdown_factor = calculate_slowdown_factor(location.current_msats, max_msats);
-        let adjusted_rate_msats =
-            (base_msats_per_location_per_minute as f64 * slowdown_factor).round() as i64;
-
-        // Calculate refill amount based on minutes elapsed and adjusted rate
-        let refill_amount_msats = minutes_since_activity * adjusted_rate_msats;
-        let new_balance_msats = (location.current_msats + refill_amount_msats).min(max_msats);
-        let actual_refill_msats = new_balance_msats - location.current_msats;
-
-        if actual_refill_msats <= 0 {
+        if max_refill_msats <= 0 {
             continue; // Already at max
         }
 
+        // Get location's pool balance
+        let pool_balance_msats = state
+            .db
+            .get_location_donation_pool_balance(&location.id)
+            .await
+            .unwrap_or(0);
+
+        if pool_balance_msats <= 0 {
+            continue; // No funds in pool
+        }
+
+        // Apply slowdown factor based on how full the location is
+        let slowdown_factor = calculate_slowdown_factor(location.current_msats, max_msats);
+
+        // Calculate refill rate: pool * percentage * slowdown
+        let rate_msats =
+            (pool_balance_msats as f64 * POOL_PERCENTAGE_PER_MINUTE * slowdown_factor).round()
+                as i64;
+
+        // Calculate refill amount
+        let refill_msats = (minutes_since_activity * rate_msats)
+            .min(pool_balance_msats)
+            .min(max_refill_msats);
+
+        if refill_msats <= 0 {
+            continue;
+        }
+
         let balance_before = location.current_msats;
+        let new_balance_msats = location.current_msats + refill_msats;
+
+        // Record debit from location's pool
+        state
+            .db
+            .record_location_pool_debit(&location.id, refill_msats)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to record pool debit: {}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
 
         // Update location balance
         state
@@ -698,10 +787,10 @@ pub async fn manual_refill(
             .db
             .record_refill(
                 &location.id,
-                actual_refill_msats,
+                refill_msats,
                 balance_before,
                 new_balance_msats,
-                base_msats_per_location_per_minute,
+                rate_msats,
                 slowdown_factor,
             )
             .await
@@ -710,43 +799,23 @@ pub async fn manual_refill(
                 StatusCode::INTERNAL_SERVER_ERROR
             })?;
 
-        total_refilled_msats += actual_refill_msats;
+        total_refilled_msats += refill_msats;
         locations_refilled += 1;
 
         tracing::info!(
-            "Refilled location {} with {} sats (now at {}/{}, rate: {} sats/min, slowdown: {:.2}x)",
+            "Refilled location {} with {} sats from pool (now at {}/{}, pool remaining: {} sats)",
             location.name,
-            actual_refill_msats / 1000,
+            refill_msats / 1000,
             new_balance_msats / 1000,
             state.max_sats_per_location,
-            adjusted_rate_msats / 1000,
-            slowdown_factor
+            (pool_balance_msats - refill_msats) / 1000
         );
     }
-
-    // Subtract from donation pool
-    if total_refilled_msats > 0 {
-        state
-            .db
-            .subtract_from_donation_pool(total_refilled_msats)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to subtract from donation pool: {}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?;
-    }
-
-    let new_pool = state.db.get_donation_pool().await.map_err(|e| {
-        tracing::error!("Failed to get donation pool: {}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
 
     Ok(Json(json!({
         "success": true,
         "locations_refilled": locations_refilled,
-        "total_sats_refilled": total_refilled_msats / 1000,
-        "pool_before": donation_pool.total_sats(),
-        "pool_after": new_pool.total_sats()
+        "total_sats_refilled": total_refilled_msats / 1000
     })))
 }
 

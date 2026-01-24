@@ -1,24 +1,30 @@
-use crate::models::{DonationPool, PendingDonation};
+use crate::models::Donation;
 use maud::{html, Markup, PreEscaped};
 
-pub fn donate(pool: &DonationPool, completed_donations: &[PendingDonation]) -> Markup {
+/// pool_balance_sats: total pool balance across all locations in sats
+/// num_locations: number of active locations
+/// received_donations: list of received donations for display
+pub fn donate(pool_balance_sats: i64, num_locations: usize, received_donations: &[Donation]) -> Markup {
     html! {
         h1 class="text-4xl font-black mb-8 text-primary" style="letter-spacing: -0.02em;" {
             i class="fa-solid fa-coins mr-2" {}
-            "DONATE TO THE POOL"
+            "DONATE TO ALL LOCATIONS"
         }
 
         // Current pool stats
         div class="card-brutal-inset mb-8" {
-            h2 class="heading-breaker orange" { "CURRENT DONATION POOL" }
+            h2 class="heading-breaker orange" { "TOTAL DONATION POOLS" }
             div class="text-center mt-8" {
                 div class="stat-brutal" {
                     div class="stat-value orange" {
-                        (pool.total_sats()) " "
+                        (pool_balance_sats) " "
                         i class="fa-solid fa-bolt" {}
                     }
-                    div class="stat-label" { "TOTAL SATS AVAILABLE FOR REFILLS" }
+                    div class="stat-label" { "TOTAL SATS ACROSS " (num_locations) " LOCATIONS" }
                 }
+            }
+            div class="text-center mt-4 text-secondary font-bold" {
+                "Donations are split equally among all active locations"
             }
         }
 
@@ -121,7 +127,7 @@ pub fn donate(pool: &DonationPool, completed_donations: &[PendingDonation]) -> M
         }
 
         // Recent donations list
-        @if !completed_donations.is_empty() {
+        @if !received_donations.is_empty() {
             div class="card-brutal-inset mt-8" {
                 h2 class="heading-breaker orange" { "RECENT DONATIONS" }
                 div class="mt-6 overflow-x-auto" {
@@ -133,11 +139,11 @@ pub fn donate(pool: &DonationPool, completed_donations: &[PendingDonation]) -> M
                             }
                         }
                         tbody {
-                            @for donation in completed_donations {
+                            @for donation in received_donations {
                                 tr class="border-b border-tertiary hover:bg-tertiary" {
                                     td class="py-2 px-3 text-secondary" {
-                                        @if let Some(completed_at) = donation.completed_at {
-                                            (completed_at.format("%Y-%m-%d %H:%M UTC"))
+                                        @if let Some(received_at) = donation.received_at {
+                                            (received_at.format("%Y-%m-%d %H:%M UTC"))
                                         }
                                     }
                                     td class="py-2 px-3 text-right font-bold text-highlight orange" {

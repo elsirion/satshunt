@@ -172,17 +172,101 @@ pub struct Photo {
     pub uploaded_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
-pub struct DonationPool {
-    pub id: i64,
-    pub total_msats: i64,
-    pub updated_at: DateTime<Utc>,
+/// Status of a donation in the payment lifecycle
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DonationStatus {
+    /// Invoice has been created, waiting for payment
+    Created,
+    /// Payment has been received
+    Received,
+    /// Invoice timed out without payment
+    TimedOut,
 }
 
-impl DonationPool {
-    /// Get total in sats for display
-    pub fn total_sats(&self) -> i64 {
-        self.total_msats / 1000
+impl DonationStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Created => "created",
+            Self::Received => "received",
+            Self::TimedOut => "timed_out",
+        }
+    }
+}
+
+impl std::fmt::Display for DonationStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+impl std::str::FromStr for DonationStatus {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "created" => Ok(Self::Created),
+            "received" => Ok(Self::Received),
+            "timed_out" => Ok(Self::TimedOut),
+            _ => Err(anyhow::anyhow!("Invalid donation status: {}", s)),
+        }
+    }
+}
+
+impl TryFrom<String> for DonationStatus {
+    type Error = anyhow::Error;
+
+    fn try_from(s: String) -> Result<Self, Self::Error> {
+        s.parse()
+    }
+}
+
+/// A donation to the platform (global or location-specific)
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+pub struct Donation {
+    pub id: String,
+    /// Location ID for location-specific donations (None = global donation)
+    pub location_id: Option<String>,
+    pub invoice: String,
+    pub amount_msats: i64,
+    #[sqlx(try_from = "String")]
+    pub status: DonationStatus,
+    pub created_at: DateTime<Utc>,
+    pub received_at: Option<DateTime<Utc>>,
+}
+
+impl Donation {
+    pub fn is_created(&self) -> bool {
+        self.status == DonationStatus::Created
+    }
+
+    pub fn is_received(&self) -> bool {
+        self.status == DonationStatus::Received
+    }
+
+    pub fn is_timed_out(&self) -> bool {
+        self.status == DonationStatus::TimedOut
+    }
+
+    /// Get amount in sats for display
+    pub fn amount_sats(&self) -> i64 {
+        self.amount_msats / 1000
+    }
+}
+
+/// Debit from a location's donation pool (when refills use the pool)
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+pub struct LocationPoolDebit {
+    pub id: String,
+    pub location_id: String,
+    pub amount_msats: i64,
+    pub created_at: DateTime<Utc>,
+}
+
+impl LocationPoolDebit {
+    /// Get amount in sats for display
+    pub fn amount_sats(&self) -> i64 {
+        self.amount_msats / 1000
     }
 }
 
@@ -304,33 +388,6 @@ impl Refill {
     /// Get base rate in sats per minute for display (with 3 decimal places for msat precision)
     pub fn base_rate_sats_per_min(&self) -> f64 {
         self.base_rate_msats_per_min as f64 / 1000.0
-    }
-}
-
-/// Pending donation that is waiting for payment confirmation.
-/// Used to make donation tracking resilient against client disconnects and server restarts.
-#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
-pub struct PendingDonation {
-    pub id: String,
-    pub invoice: String,
-    pub amount_msats: i64,
-    pub status: String, // 'pending', 'completed', 'expired'
-    pub created_at: DateTime<Utc>,
-    pub completed_at: Option<DateTime<Utc>>,
-}
-
-impl PendingDonation {
-    pub fn is_pending(&self) -> bool {
-        self.status == "pending"
-    }
-
-    pub fn is_completed(&self) -> bool {
-        self.status == "completed"
-    }
-
-    /// Get amount in sats for display
-    pub fn amount_sats(&self) -> i64 {
-        self.amount_msats / 1000
     }
 }
 
@@ -693,13 +750,18 @@ mod tests {
     }
 
     #[test]
-    fn test_donation_pool_total_sats() {
-        let pool = DonationPool {
-            id: 1,
-            total_msats: 123456,
-            updated_at: Utc::now(),
+    fn test_donation_amount_sats() {
+        let donation = Donation {
+            id: "test-id".to_string(),
+            location_id: None,
+            invoice: "lnbc...".to_string(),
+            amount_msats: 123456,
+            status: DonationStatus::Received,
+            created_at: Utc::now(),
+            received_at: Some(Utc::now()),
         };
-        assert_eq!(pool.total_sats(), 123);
+        assert_eq!(donation.amount_sats(), 123);
+        assert!(donation.is_received());
     }
 
     #[test]

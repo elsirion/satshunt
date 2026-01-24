@@ -1,4 +1,4 @@
-use crate::models::{Location, Photo, Refill, Scan};
+use crate::models::{Donation, Location, Photo, Refill, Scan};
 use maud::{html, Markup, PreEscaped};
 
 #[allow(clippy::too_many_arguments)] // All parameters are needed for the template
@@ -13,6 +13,8 @@ pub fn location_detail(
     success: Option<&str>,
     withdrawn_amount: Option<i64>,
     base_url: &str,
+    donation_pool_sats: i64,
+    donations: &[Donation],
 ) -> Markup {
     let withdrawable_sats = location.withdrawable_sats();
     let sats_percent = if max_sats_per_location > 0 {
@@ -430,6 +432,105 @@ pub fn location_detail(
                 }
             }
 
+            // Donation Pool Section
+            div class="card-brutal-inset mb-8" {
+                h2 class="heading-breaker orange" {
+                    i class="fa-solid fa-coins mr-2" {}
+                    "DONATION POOL"
+                }
+
+                div class="mt-8" {
+                    // Current pool balance
+                    div class="flex items-center justify-between mb-6 p-4" style="background: var(--bg-tertiary); border: 2px solid var(--accent-muted);" {
+                        div {
+                            div class="label-brutal text-xs mb-1" { "POOL BALANCE" }
+                            div class="text-3xl font-black text-highlight orange" {
+                                (donation_pool_sats) " "
+                                i class="fa-solid fa-bolt" {}
+                            }
+                        }
+                        div class="text-right" {
+                            div class="text-sm text-muted font-bold" { "DEDICATED TO THIS LOCATION" }
+                            div class="text-xs text-secondary font-bold mt-1" { "Auto-refills location balance" }
+                        }
+                    }
+
+                    // Donation form
+                    div id="donationContainer" {
+                        div class="label-brutal mb-4" { "DONATE TO THIS LOCATION" }
+
+                        // Amount selection
+                        div id="locationAmountSelection" {
+                            div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4" {
+                                (location_amount_button("1000", "1K", &location.id))
+                                (location_amount_button("5000", "5K", &location.id))
+                                (location_amount_button("10000", "10K", &location.id))
+                                (location_amount_button("custom", "CUSTOM", &location.id))
+                            }
+
+                            // Custom amount input
+                            div id="locationCustomAmountDiv" class="hidden mt-4" {
+                                div class="flex gap-2" {
+                                    input type="number" id="locationCustomAmount" min="1" step="1"
+                                        class="flex-1 input-brutal-box"
+                                        placeholder="AMOUNT IN SATS";
+                                    button type="button" id="locationCustomSubmit"
+                                        class="btn-brutal-orange"
+                                        data-location-id=(location.id) {
+                                        "CREATE INVOICE"
+                                    }
+                                }
+                            }
+                        }
+
+                        // Invoice display area
+                        div id="locationInvoiceArea" class="hidden mt-6" {}
+
+                        // Payment status area
+                        div id="locationPaymentStatus" {}
+                    }
+                }
+            }
+
+            // Recent Donations History
+            @if !donations.is_empty() {
+                div class="card-brutal-inset mb-8" {
+                    h2 class="heading-breaker orange" {
+                        i class="fa-solid fa-gift mr-2" {}
+                        "RECENT DONATIONS"
+                    }
+
+                    div class="overflow-x-auto mt-8" {
+                        table class="w-full" {
+                            thead {
+                                tr style="border-bottom: 2px solid var(--accent-muted);" {
+                                    th class="text-left py-3 px-4 text-secondary font-black" { "DATE" }
+                                    th class="text-right py-3 px-4 text-secondary font-black" { "AMOUNT" }
+                                }
+                            }
+                            tbody {
+                                @for donation in donations {
+                                    tr style="border-bottom: 2px solid var(--accent-muted);" class="hover:bg-tertiary transition-colors" {
+                                        td class="py-3 px-4 text-secondary font-bold mono text-sm" {
+                                            @if let Some(received_at) = donation.received_at {
+                                                (received_at.format("%Y-%m-%d %H:%M UTC"))
+                                            }
+                                        }
+                                        td class="py-3 px-4 text-right mono" {
+                                            span class="text-highlight orange font-black" {
+                                                (donation.amount_sats())
+                                            }
+                                            " "
+                                            i class="fa-solid fa-bolt text-highlight orange" {}
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // Map
             div class="card-brutal-inset mb-8" {
                 h2 class="heading-breaker" {
@@ -559,6 +660,122 @@ pub fn location_detail(
         </script>
         "#))
 
+        // Location donation script
+        (PreEscaped(r#"
+        <script>
+            // Location donation amount button handlers
+            document.querySelectorAll('.location-amount-btn').forEach(button => {
+                button.addEventListener('click', async function() {
+                    const amount = this.dataset.amount;
+                    const locationId = this.dataset.locationId;
+
+                    if (amount === 'custom') {
+                        document.getElementById('locationCustomAmountDiv').classList.remove('hidden');
+                    } else {
+                        await generateLocationInvoice(parseInt(amount), locationId);
+                    }
+                });
+            });
+
+            // Custom amount submit
+            document.getElementById('locationCustomSubmit').addEventListener('click', async function() {
+                const customAmount = parseInt(document.getElementById('locationCustomAmount').value);
+                const locationId = this.dataset.locationId;
+                if (customAmount > 0) {
+                    await generateLocationInvoice(customAmount, locationId);
+                } else {
+                    alert('Please enter a valid amount');
+                }
+            });
+
+            async function generateLocationInvoice(amount, locationId) {
+                try {
+                    // Hide amount selection
+                    document.getElementById('locationAmountSelection').classList.add('hidden');
+                    document.getElementById('locationCustomAmountDiv').classList.add('hidden');
+
+                    // Show loading
+                    document.getElementById('locationInvoiceArea').innerHTML = `
+                        <div class="text-center py-8">
+                            <div class="animate-spin rounded-full h-12 w-12 border-b-2 mx-auto mb-4" style="border-color: var(--highlight);"></div>
+                            <p class="text-secondary font-bold">GENERATING INVOICE...</p>
+                        </div>
+                    `;
+                    document.getElementById('locationInvoiceArea').classList.remove('hidden');
+
+                    // Generate invoice with location_id
+                    const response = await fetch('/api/donate/invoice', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ amount: amount, location_id: locationId })
+                    });
+
+                    if (!response.ok) {
+                        throw new Error('Failed to generate invoice');
+                    }
+
+                    const data = await response.json();
+
+                    // Display invoice and QR code
+                    document.getElementById('locationInvoiceArea').innerHTML = `
+                        <div class="p-6" style="background: var(--bg-tertiary); border: 2px solid var(--accent-muted);">
+                            <div class="text-center mb-4">
+                                <p class="text-2xl font-black text-highlight orange">${amount.toLocaleString()} SATS</p>
+                                <p class="text-sm text-muted font-bold">SCAN WITH YOUR LIGHTNING WALLET</p>
+                            </div>
+                            <div class="bg-white p-4 inline-block mx-auto block" style="border: 3px solid var(--accent-border);">
+                                <img src="${data.qr_code}" alt="Invoice QR Code" class="w-48 h-48 mx-auto">
+                            </div>
+                            <details class="mt-4">
+                                <summary class="cursor-pointer text-muted hover:text-secondary text-sm font-bold">
+                                    SHOW INVOICE STRING
+                                </summary>
+                                <div class="mt-2 p-3 text-xs font-mono break-all text-secondary" style="background: var(--bg-secondary); border: 2px solid var(--accent-muted);">
+                                    ${data.invoice}
+                                </div>
+                            </details>
+                            <div class="mt-6 p-3 flex items-center gap-2" style="background: var(--highlight-glow); border: 2px solid var(--highlight);">
+                                <i class="fa-solid fa-hourglass-half animate-pulse text-highlight"></i>
+                                <span class="text-sm font-bold text-primary">WAITING FOR PAYMENT...</span>
+                            </div>
+                            <button type="button" onclick="resetLocationDonation()" class="btn-brutal mt-4 w-full">
+                                CANCEL
+                            </button>
+                        </div>
+                    `;
+
+                    // Start waiting for payment
+                    const paymentStatusDiv = document.getElementById('locationPaymentStatus');
+                    paymentStatusDiv.setAttribute('hx-get', `/api/donate/wait/${data.invoice}:${amount}`);
+                    paymentStatusDiv.setAttribute('hx-trigger', 'load');
+                    paymentStatusDiv.setAttribute('hx-swap', 'innerHTML');
+                    htmx.process(paymentStatusDiv);
+
+                } catch (error) {
+                    console.error('Error:', error);
+                    document.getElementById('locationInvoiceArea').innerHTML = `
+                        <div class="p-4" style="background: var(--highlight-glow); border: 2px solid var(--highlight);">
+                            <p class="font-bold text-highlight">ERROR</p>
+                            <p class="text-sm text-secondary">${error.message}</p>
+                        </div>
+                    `;
+                    // Show amount selection again
+                    document.getElementById('locationAmountSelection').classList.remove('hidden');
+                }
+            }
+
+            function resetLocationDonation() {
+                document.getElementById('locationInvoiceArea').classList.add('hidden');
+                document.getElementById('locationInvoiceArea').innerHTML = '';
+                document.getElementById('locationAmountSelection').classList.remove('hidden');
+                document.getElementById('locationCustomAmountDiv').classList.add('hidden');
+                document.getElementById('locationPaymentStatus').innerHTML = '';
+            }
+        </script>
+        "#))
+
     }
 }
 
@@ -573,6 +790,15 @@ fn delete_button(location_id: &str) -> Markup {
             }
             class="btn-brutal" style="border-color: var(--accent-muted); color: var(--text-muted);" {
             i class="fa-solid fa-trash" {}
+        }
+    }
+}
+
+fn location_amount_button(amount: &str, label: &str, location_id: &str) -> Markup {
+    html! {
+        button type="button" data-amount=(amount) data-location-id=(location_id)
+            class="location-amount-btn btn-brutal font-black" {
+            (label)
         }
     }
 }

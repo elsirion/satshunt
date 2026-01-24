@@ -121,21 +121,64 @@ async fn test_get_location() {
 async fn test_donation_pool_operations() {
     let (db, _temp) = setup_test_db().await;
 
-    // Get initial pool (should be 0)
-    let pool = db.get_donation_pool().await.unwrap();
-    assert_eq!(pool.total_msats, 0);
+    // Create a user and location for testing
+    let auth = AuthMethod::Password {
+        password_hash: "hash".to_string(),
+    };
+    let user = db
+        .create_user("pooltest".to_string(), None, auth)
+        .await
+        .unwrap();
+    let location = db
+        .create_location(
+            "Pool Test Location".to_string(),
+            0.0,
+            0.0,
+            None,
+            "secret".to_string(),
+            user.id,
+        )
+        .await
+        .unwrap();
 
-    // Add to pool
-    let pool = db.add_to_donation_pool(100000).await.unwrap(); // 100 sats
-    assert_eq!(pool.total_msats, 100000);
+    // Get initial location pool balance (should be 0)
+    let balance = db
+        .get_location_donation_pool_balance(&location.id)
+        .await
+        .unwrap();
+    assert_eq!(balance, 0);
 
-    // Add more
-    let pool = db.add_to_donation_pool(50000).await.unwrap(); // 50 sats
-    assert_eq!(pool.total_msats, 150000);
+    // Add to pool via location-specific donation
+    db.create_donation("lnbc100k1".to_string(), 100000, Some(&location.id))
+        .await
+        .unwrap();
+    db.mark_donation_received("lnbc100k1").await.unwrap();
+    let balance = db
+        .get_location_donation_pool_balance(&location.id)
+        .await
+        .unwrap();
+    assert_eq!(balance, 100000);
 
-    // Subtract from pool
-    let pool = db.subtract_from_donation_pool(30000).await.unwrap(); // 30 sats
-    assert_eq!(pool.total_msats, 120000);
+    // Add more via another donation
+    db.create_donation("lnbc50k1".to_string(), 50000, Some(&location.id))
+        .await
+        .unwrap();
+    db.mark_donation_received("lnbc50k1").await.unwrap();
+    let balance = db
+        .get_location_donation_pool_balance(&location.id)
+        .await
+        .unwrap();
+    assert_eq!(balance, 150000);
+
+    // Record a debit (refill used pool)
+    db.record_location_pool_debit(&location.id, 30000)
+        .await
+        .unwrap();
+    let balance = db
+        .get_location_donation_pool_balance(&location.id)
+        .await
+        .unwrap();
+    assert_eq!(balance, 120000);
 }
 
 #[tokio::test]
@@ -348,8 +391,11 @@ async fn test_get_stats() {
     db.update_location_status(&loc1.id, "active").await.unwrap();
     db.update_location_status(&loc2.id, "active").await.unwrap();
 
-    // Add to donation pool
-    db.add_to_donation_pool(200000).await.unwrap();
+    // Add to donation pool via donation
+    db.create_donation("lnbc200k1".to_string(), 200000, None)
+        .await
+        .unwrap();
+    db.mark_donation_received("lnbc200k1").await.unwrap();
 
     let stats = db.get_stats().await.unwrap();
     assert_eq!(stats.total_locations, 2);
