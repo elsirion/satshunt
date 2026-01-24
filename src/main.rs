@@ -7,7 +7,7 @@ use axum::{
 use clap::Parser;
 use config::Config;
 use handlers::api::AppState;
-use satshunt::{config, db, donation, handlers, lightning, refill};
+use satshunt::{auth::auth, config, db, donation, handlers, lightning, refill};
 use std::sync::Arc;
 use tower_http::{services::ServeDir, trace::TraceLayer};
 use tower_sessions::SessionManagerLayer;
@@ -110,21 +110,24 @@ async fn main() -> Result<()> {
     // Build router
     let app = Router::new()
         // Page routes
-        .route("/", get(handlers::home_page))
-        .route("/map", get(handlers::map_page))
-        .route("/locations/new", get(handlers::new_location_page))
-        .route("/locations/:id", get(handlers::location_detail_page))
-        .route("/setup/:write_token", get(handlers::nfc_setup_page))
-        .route("/donate", get(handlers::donate_page))
-        .route("/withdraw/:location_id", get(handlers::withdraw_page))
-        .route("/wallet", get(handlers::wallet_page))
-        .route("/login", get(handlers::login_page).post(handlers::login))
+        .route("/", get(auth(handlers::home_page)))
+        .route("/map", get(auth(handlers::map_page)))
+        .route("/locations/new", get(auth(handlers::new_location_page)))
+        .route("/locations/:id", get(auth(handlers::location_detail_page)))
+        .route("/setup/:write_token", get(auth(handlers::nfc_setup_page)))
+        .route("/donate", get(auth(handlers::donate_page)))
+        .route("/withdraw/:location_id", get(auth(handlers::withdraw_page)))
+        .route("/wallet", get(auth(handlers::wallet_page)))
+        .route(
+            "/login",
+            get(auth(handlers::login_page)).post(handlers::login),
+        )
         .route(
             "/register",
-            get(handlers::register_page).post(handlers::register),
+            get(auth(handlers::register_page)).post(handlers::register),
         )
         .route("/logout", post(handlers::logout))
-        .route("/profile", get(handlers::profile_page))
+        .route("/profile", get(auth(handlers::profile_page)))
         // API routes
         .route("/api/locations", post(handlers::create_location))
         .route(

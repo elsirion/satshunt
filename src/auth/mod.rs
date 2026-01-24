@@ -5,6 +5,7 @@ use argon2::{
     password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
 };
+pub use auth_handler::{auth, auth_body};
 use axum::{
     async_trait,
     extract::FromRequestParts,
@@ -16,6 +17,8 @@ use axum_extra::extract::cookie::{Cookie, PrivateCookieJar};
 use serde::Deserialize;
 use std::sync::Arc;
 use uuid::Uuid;
+
+pub mod auth_handler;
 
 /// Cookie name for user identification
 pub const USER_COOKIE_NAME: &str = "satshunt_uid";
@@ -84,6 +87,17 @@ impl CookieUser {
     /// Check if this is a registered user
     pub fn is_registered(&self) -> bool {
         self.kind.is_registered()
+    }
+
+    /// Ensure the user is registered, returning a redirect to login if not.
+    ///
+    /// Returns the username if registered, or a redirect response if not.
+    #[allow(clippy::result_large_err)] // Response is idiomatic for axum error returns
+    pub fn ensure_registered(&self) -> Result<&str, Response> {
+        match &self.kind {
+            UserKind::Registered { username } => Ok(username.as_str()),
+            _ => Err(Redirect::to("/login").into_response()),
+        }
     }
 
     /// Build a cookie for the given user ID
