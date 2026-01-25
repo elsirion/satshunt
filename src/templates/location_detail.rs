@@ -221,6 +221,15 @@ pub fn location_detail(
                 }
             }
 
+            // Map
+            div class="card-brutal-inset mb-8" {
+                h2 class="heading-breaker" {
+                    i class="fa-solid fa-map mr-2" {}
+                    "LOCATION"
+                }
+                div id="map" class="w-full h-64 mt-8" style="border: 3px solid var(--accent-border);" {}
+            }
+
             // Photos
             div class="card-brutal-inset mb-8" {
                 h2 class="heading-breaker" {
@@ -276,12 +285,129 @@ pub fn location_detail(
                 }
             }
 
-            // Payout History
+            // Donation Pool Section
+            div class="card-brutal-inset mb-8" {
+                h2 class="heading-breaker orange" {
+                    i class="fa-solid fa-coins mr-2" {}
+                    "DONATION POOL"
+                }
+
+                div class="mt-8" {
+                    // Current pool balance
+                    div class="flex items-center justify-between mb-6 p-4" style="background: var(--bg-tertiary); border: 2px solid var(--accent-muted);" {
+                        div {
+                            div class="label-brutal text-xs mb-1" { "POOL BALANCE" }
+                            div class="text-3xl font-black text-highlight orange" {
+                                (donation_pool_sats) " "
+                                i class="fa-solid fa-bolt" {}
+                            }
+                        }
+                        div class="text-right" {
+                            div class="text-sm text-muted font-bold" { "DEDICATED TO THIS LOCATION" }
+                            div class="text-xs text-secondary font-bold mt-1" { "Auto-refills location balance" }
+                        }
+                    }
+
+                    // Donation form
+                    div id="donationContainer" {
+                        div class="label-brutal mb-4" { "DONATE TO THIS LOCATION" }
+
+                        // Amount selection
+                        div id="locationAmountSelection" {
+                            div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4" {
+                                (location_amount_button("1000", "1K", &location.id))
+                                (location_amount_button("5000", "5K", &location.id))
+                                (location_amount_button("10000", "10K", &location.id))
+                                (location_amount_button("custom", "CUSTOM", &location.id))
+                            }
+
+                            // Custom amount input
+                            div id="locationCustomAmountDiv" class="hidden mt-4" {
+                                div class="flex gap-2" {
+                                    input type="number" id="locationCustomAmount" min="1" step="1"
+                                        class="flex-1 input-brutal-box"
+                                        placeholder="AMOUNT IN SATS";
+                                    button type="button" id="locationCustomSubmit"
+                                        class="btn-brutal-orange"
+                                        data-location-id=(location.id) {
+                                        "CREATE INVOICE"
+                                    }
+                                }
+                            }
+                        }
+
+                        // Invoice display area
+                        div id="locationInvoiceArea" class="hidden mt-6" {}
+
+                        // Payment status area
+                        div id="locationPaymentStatus" {}
+                    }
+                }
+            }
+
+            // Recent Donations History (default collapsed)
+            @if !donations.is_empty() {
+                div class="card-brutal-inset mb-8" {
+                    details {
+                        summary class="text-2xl font-black text-primary cursor-pointer select-none hover:text-highlight transition-colors" {
+                            i class="fa-solid fa-gift mr-2 text-highlight orange" {}
+                            "DONATION HISTORY "
+                            span class="text-base text-muted mono" { "[" (donations.len()) " DONATIONS]" }
+                        }
+
+                        div class="overflow-x-auto mt-4" {
+                            table class="w-full" {
+                                thead {
+                                    tr style="border-bottom: 2px solid var(--accent-muted);" {
+                                        th class="text-left py-3 px-4 text-secondary font-black" { "DATE" }
+                                        th class="text-left py-3 px-4 text-secondary font-black" { "SOURCE" }
+                                        th class="text-right py-3 px-4 text-secondary font-black" { "AMOUNT" }
+                                    }
+                                }
+                                tbody {
+                                    @for donation in donations {
+                                        @let is_global = donation.invoice.contains("-split-");
+                                        tr style="border-bottom: 2px solid var(--accent-muted);" class="hover:bg-tertiary transition-colors" {
+                                            td class="py-3 px-4 text-secondary font-bold mono text-sm" {
+                                                @if let Some(received_at) = donation.received_at {
+                                                    (received_at.format("%Y-%m-%d %H:%M UTC"))
+                                                }
+                                            }
+                                            td class="py-3 px-4 text-sm font-bold" {
+                                                @if is_global {
+                                                    span class="text-muted" {
+                                                        i class="fa-solid fa-globe mr-1" {}
+                                                        "Global"
+                                                    }
+                                                } @else {
+                                                    span class="text-highlight orange" {
+                                                        i class="fa-solid fa-location-dot mr-1" {}
+                                                        "Direct"
+                                                    }
+                                                }
+                                            }
+                                            td class="py-3 px-4 text-right mono" {
+                                                span class="text-highlight orange font-black" {
+                                                    (donation.amount_sats())
+                                                }
+                                                " "
+                                                i class="fa-solid fa-bolt text-highlight orange" {}
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Payout History (Latest Withdraws)
             @if !scans.is_empty() {
                 div class="card-brutal-inset mb-8" {
                     h2 class="heading-breaker" {
                         i class="fa-solid fa-history mr-2" {}
-                        "PAYOUT HISTORY"
+                        "LATEST WITHDRAWS"
                     }
 
                     div class="overflow-x-auto mt-8" {
@@ -313,7 +439,7 @@ pub fn location_detail(
                 }
             }
 
-            // Refill History
+            // Refill History (default collapsed)
             @if !refills.is_empty() {
                 div class="card-brutal-inset mb-8" {
                     details {
@@ -432,128 +558,6 @@ pub fn location_detail(
                 }
             }
 
-            // Donation Pool Section
-            div class="card-brutal-inset mb-8" {
-                h2 class="heading-breaker orange" {
-                    i class="fa-solid fa-coins mr-2" {}
-                    "DONATION POOL"
-                }
-
-                div class="mt-8" {
-                    // Current pool balance
-                    div class="flex items-center justify-between mb-6 p-4" style="background: var(--bg-tertiary); border: 2px solid var(--accent-muted);" {
-                        div {
-                            div class="label-brutal text-xs mb-1" { "POOL BALANCE" }
-                            div class="text-3xl font-black text-highlight orange" {
-                                (donation_pool_sats) " "
-                                i class="fa-solid fa-bolt" {}
-                            }
-                        }
-                        div class="text-right" {
-                            div class="text-sm text-muted font-bold" { "DEDICATED TO THIS LOCATION" }
-                            div class="text-xs text-secondary font-bold mt-1" { "Auto-refills location balance" }
-                        }
-                    }
-
-                    // Donation form
-                    div id="donationContainer" {
-                        div class="label-brutal mb-4" { "DONATE TO THIS LOCATION" }
-
-                        // Amount selection
-                        div id="locationAmountSelection" {
-                            div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4" {
-                                (location_amount_button("1000", "1K", &location.id))
-                                (location_amount_button("5000", "5K", &location.id))
-                                (location_amount_button("10000", "10K", &location.id))
-                                (location_amount_button("custom", "CUSTOM", &location.id))
-                            }
-
-                            // Custom amount input
-                            div id="locationCustomAmountDiv" class="hidden mt-4" {
-                                div class="flex gap-2" {
-                                    input type="number" id="locationCustomAmount" min="1" step="1"
-                                        class="flex-1 input-brutal-box"
-                                        placeholder="AMOUNT IN SATS";
-                                    button type="button" id="locationCustomSubmit"
-                                        class="btn-brutal-orange"
-                                        data-location-id=(location.id) {
-                                        "CREATE INVOICE"
-                                    }
-                                }
-                            }
-                        }
-
-                        // Invoice display area
-                        div id="locationInvoiceArea" class="hidden mt-6" {}
-
-                        // Payment status area
-                        div id="locationPaymentStatus" {}
-                    }
-                }
-            }
-
-            // Recent Donations History
-            @if !donations.is_empty() {
-                div class="card-brutal-inset mb-8" {
-                    h2 class="heading-breaker orange" {
-                        i class="fa-solid fa-gift mr-2" {}
-                        "RECENT DONATIONS"
-                    }
-
-                    div class="overflow-x-auto mt-8" {
-                        table class="w-full" {
-                            thead {
-                                tr style="border-bottom: 2px solid var(--accent-muted);" {
-                                    th class="text-left py-3 px-4 text-secondary font-black" { "DATE" }
-                                    th class="text-left py-3 px-4 text-secondary font-black" { "SOURCE" }
-                                    th class="text-right py-3 px-4 text-secondary font-black" { "AMOUNT" }
-                                }
-                            }
-                            tbody {
-                                @for donation in donations {
-                                    @let is_global = donation.invoice.contains("-split-");
-                                    tr style="border-bottom: 2px solid var(--accent-muted);" class="hover:bg-tertiary transition-colors" {
-                                        td class="py-3 px-4 text-secondary font-bold mono text-sm" {
-                                            @if let Some(received_at) = donation.received_at {
-                                                (received_at.format("%Y-%m-%d %H:%M UTC"))
-                                            }
-                                        }
-                                        td class="py-3 px-4 text-sm font-bold" {
-                                            @if is_global {
-                                                span class="text-muted" {
-                                                    i class="fa-solid fa-globe mr-1" {}
-                                                    "Global"
-                                                }
-                                            } @else {
-                                                span class="text-highlight orange" {
-                                                    i class="fa-solid fa-location-dot mr-1" {}
-                                                    "Direct"
-                                                }
-                                            }
-                                        }
-                                        td class="py-3 px-4 text-right mono" {
-                                            span class="text-highlight orange font-black" {
-                                                (donation.amount_sats())
-                                            }
-                                            " "
-                                            i class="fa-solid fa-bolt text-highlight orange" {}
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Map
-            div class="card-brutal-inset mb-8" {
-                h2 class="heading-breaker" {
-                    i class="fa-solid fa-map mr-2" {}
-                    "LOCATION"
-                }
-                div id="map" class="w-full h-64 mt-8" style="border: 3px solid var(--accent-border);" {}
-            }
         }
 
         // Map script

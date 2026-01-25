@@ -142,25 +142,14 @@ impl Location {
         self.current_msats / 1000
     }
 
-    /// Calculate the withdrawable amount accounting for fees
-    /// Subtracts 2 sats fixed fee and 0.5% routing fee
+    /// Get the withdrawable amount in msats (same as current balance since withdrawals are internal)
     pub fn withdrawable_msats(&self) -> i64 {
-        // Calculate routing fee (0.5%)
-        let routing_fee_msats = (self.current_msats as f64 * 0.005).ceil() as i64;
-
-        // Fixed fee of 2 sats (2000 msats)
-        let fixed_fee_msats = 2000;
-
-        // Total fees
-        let total_fee_msats = routing_fee_msats + fixed_fee_msats;
-
-        // Withdrawable amount (can't go below 0)
-        (self.current_msats - total_fee_msats).max(0)
+        self.current_msats
     }
 
     /// Get the withdrawable amount in sats for display
     pub fn withdrawable_sats(&self) -> i64 {
-        self.withdrawable_msats() / 1000
+        self.current_sats()
     }
 }
 
@@ -503,52 +492,29 @@ mod tests {
     }
 
     #[test]
-    fn test_withdrawable_msats_below_fixed_fee() {
-        // Fixed fee is 2000 msats (2 sats)
-        // With 1000 msats, after 0.5% routing fee (5 msats) and 2000 fixed fee,
-        // we should get 0 (can't go negative)
+    fn test_withdrawable_msats_equals_current() {
+        // Withdrawable amount equals current balance (no fees for internal transactions)
         let location = make_test_location(1000);
-        assert_eq!(location.withdrawable_msats(), 0);
-    }
-
-    #[test]
-    fn test_withdrawable_msats_at_threshold() {
-        // At exactly 2000 msats (2 sats):
-        // Routing fee: 2000 * 0.005 = 10 msats (ceiled)
-        // Fixed fee: 2000 msats
-        // Total fees: 2010 msats
-        // Withdrawable: 2000 - 2010 = -10 -> 0 (clamped)
-        let location = make_test_location(2000);
-        assert_eq!(location.withdrawable_msats(), 0);
+        assert_eq!(location.withdrawable_msats(), 1000);
     }
 
     #[test]
     fn test_withdrawable_msats_normal() {
-        // With 10000 msats (10 sats):
-        // Routing fee: 10000 * 0.005 = 50 msats
-        // Fixed fee: 2000 msats
-        // Total fees: 2050 msats
-        // Withdrawable: 10000 - 2050 = 7950 msats
         let location = make_test_location(10000);
-        assert_eq!(location.withdrawable_msats(), 7950);
+        assert_eq!(location.withdrawable_msats(), 10000);
     }
 
     #[test]
     fn test_withdrawable_msats_large() {
-        // With 1000000 msats (1000 sats):
-        // Routing fee: 1000000 * 0.005 = 5000 msats
-        // Fixed fee: 2000 msats
-        // Total fees: 7000 msats
-        // Withdrawable: 1000000 - 7000 = 993000 msats
         let location = make_test_location(1000000);
-        assert_eq!(location.withdrawable_msats(), 993000);
+        assert_eq!(location.withdrawable_msats(), 1000000);
     }
 
     #[test]
     fn test_withdrawable_sats() {
         let location = make_test_location(10000);
-        // 7950 msats = 7 sats (integer division)
-        assert_eq!(location.withdrawable_sats(), 7);
+        // 10000 msats = 10 sats
+        assert_eq!(location.withdrawable_sats(), 10);
     }
 
     #[test]

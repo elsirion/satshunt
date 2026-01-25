@@ -57,11 +57,8 @@ pub fn map(locations: &[Location], max_sats_per_location: i64) -> Markup {
             const bounds = new maplibregl.LngLatBounds();
 
             locations.forEach(loc => {{
-                // Calculate withdrawable amount (accounting for 2 sat fee + 0.5% routing fee)
-                const routingFeeMsats = Math.ceil(loc.current_msats * 0.005);
-                const fixedFeeMsats = 2000;
-                const withdrawableMsats = Math.max(0, loc.current_msats - routingFeeMsats - fixedFeeMsats);
-                const withdrawableSats = Math.floor(withdrawableMsats / 1000);
+                // Withdrawable amount is the same as current balance (internal transactions)
+                const withdrawableSats = Math.floor(loc.current_msats / 1000);
 
                 const satsPercent = (withdrawableSats / maxSatsPerLocation) * 100;
                 const color = satsPercent > 50 ? '#22c55e' : satsPercent > 20 ? '#eab308' : '#ef4444';
