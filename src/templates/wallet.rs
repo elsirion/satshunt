@@ -252,47 +252,6 @@ pub fn wallet(
                 }
             }
 
-            // Backup reminder for anonymous users
-            @if user.map(|u| u.is_anonymous()).unwrap_or(true) {
-                div class="card-brutal mb-6" style="border-color: var(--color-warning);" {
-                    div class="p-4" {
-                        h3 class="font-bold text-primary mb-2" {
-                            i class="fa-solid fa-exclamation-triangle mr-2 text-highlight orange" {}
-                            "BACKUP YOUR WALLET"
-                        }
-                        p class="text-sm text-secondary" {
-                            "Your wallet is stored in this browser. Bookmark this page or save your wallet ID:"
-                        }
-                        @if let Some(u) = user {
-                            div class="mt-3 p-2 font-mono text-xs break-all" style="background: var(--bg-tertiary); border: 2px solid var(--accent-muted);" {
-                                (u.id)
-                            }
-                        } @else {
-                            div class="mt-3 p-2 text-sm text-muted" style="background: var(--bg-tertiary); border: 2px solid var(--accent-muted);" {
-                                "Collect some sats to create your wallet!"
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Find more locations CTA
-            div class="card-brutal mb-6" {
-                div class="p-6 text-center" {
-                    h3 class="font-bold text-primary mb-2" {
-                        i class="fa-solid fa-map-location-dot mr-2 text-highlight orange" {}
-                        "FIND MORE SATS"
-                    }
-                    p class="text-sm text-secondary mb-4" {
-                        "Explore the map to find NFC stickers and collect more sats!"
-                    }
-                    a href="/map" class="btn-brutal-fill inline-block" style="background: var(--highlight); border-color: var(--highlight);" {
-                        i class="fa-solid fa-map mr-2" {}
-                        "VIEW MAP"
-                    }
-                }
-            }
-
             // Transaction history
             div class="card-brutal" {
                 h2 class="heading-breaker" {

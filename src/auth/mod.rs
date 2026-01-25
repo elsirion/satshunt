@@ -23,6 +23,9 @@ pub mod auth_handler;
 /// Cookie name for user identification
 pub const USER_COOKIE_NAME: &str = "satshunt_uid";
 
+/// Cookie name for backing up anonymous user ID (restored on logout)
+const ANON_BACKUP_COOKIE_NAME: &str = "satshunt_anon_backup";
+
 /// Cookie max age: 5 years
 const COOKIE_MAX_AGE_DAYS: i64 = 365 * 5;
 
@@ -251,15 +254,42 @@ pub fn verify_user_password(user: &User, password: &str) -> anyhow::Result<bool>
     }
 }
 
+/// Build a backup cookie for storing the anonymous user ID
+fn build_anon_backup_cookie(user_id: &str) -> Cookie<'static> {
+    Cookie::build((ANON_BACKUP_COOKIE_NAME, user_id.to_string()))
+        .path("/")
+        .http_only(true)
+        .secure(false) // Set to true in production with HTTPS
+        .max_age(Duration::days(COOKIE_MAX_AGE_DAYS))
+        .build()
+}
+
 /// Set the user cookie to point to a specific user ID (used after login/register).
+/// Also backs up the current anonymous user ID so it can be restored on logout.
 /// Returns the updated jar that must be included in the response.
 pub fn set_user_cookie(jar: PrivateCookieJar, user_id: &str) -> PrivateCookieJar {
+    // Backup the current user ID (anon) before switching to the registered user
+    let jar = jar
+        .get(USER_COOKIE_NAME)
+        .map(|current| jar.clone().add(build_anon_backup_cookie(current.value())))
+        .unwrap_or(jar);
+
     let cookie = CookieUser::build_cookie(user_id);
     jar.add(cookie)
 }
 
 /// Remove the user cookie (used for logout).
+/// Restores the backed up anonymous user ID if available.
 /// Returns the updated jar that must be included in the response.
 pub fn remove_user_cookie(jar: PrivateCookieJar) -> PrivateCookieJar {
-    jar.remove(Cookie::from(USER_COOKIE_NAME))
+    // Try to restore the backed up anonymous user ID
+    match jar.get(ANON_BACKUP_COOKIE_NAME) {
+        Some(backup_cookie) => {
+            let anon_id = backup_cookie.value().to_string();
+            let jar = jar.remove(Cookie::from(ANON_BACKUP_COOKIE_NAME));
+            let cookie = CookieUser::build_cookie(&anon_id);
+            jar.add(cookie)
+        }
+        None => jar.remove(Cookie::from(USER_COOKIE_NAME)),
+    }
 }
