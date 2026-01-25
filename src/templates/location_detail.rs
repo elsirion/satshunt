@@ -1,4 +1,7 @@
 use crate::models::{Donation, Location, Photo, Refill, Scan};
+use crate::templates::components::{
+    donation_invoice_markup, donation_invoice_script, DonationInvoiceConfig,
+};
 use maud::{html, Markup, PreEscaped};
 
 #[allow(clippy::too_many_arguments)] // All parameters are needed for the template
@@ -310,37 +313,17 @@ pub fn location_detail(
 
                     // Donation form
                     div id="donationContainer" {
-                        div class="label-brutal mb-4" { "DONATE TO THIS LOCATION" }
-
-                        // Amount selection
-                        div id="locationAmountSelection" {
-                            div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4" {
-                                (location_amount_button("1000", "1K", &location.id))
-                                (location_amount_button("5000", "5K", &location.id))
-                                (location_amount_button("10000", "10K", &location.id))
-                                (location_amount_button("custom", "CUSTOM", &location.id))
-                            }
-
-                            // Custom amount input
-                            div id="locationCustomAmountDiv" class="hidden mt-4" {
-                                div class="flex gap-2" {
-                                    input type="number" id="locationCustomAmount" min="1" step="1"
-                                        class="flex-1 input-brutal-box"
-                                        placeholder="AMOUNT IN SATS";
-                                    button type="button" id="locationCustomSubmit"
-                                        class="btn-brutal-orange"
-                                        data-location-id=(location.id) {
-                                        "CREATE INVOICE"
-                                    }
-                                }
-                            }
-                        }
-
-                        // Invoice display area
-                        div id="locationInvoiceArea" class="hidden mt-6" {}
-
-                        // Payment status area
-                        div id="locationPaymentStatus" {}
+                        (donation_invoice_markup(&DonationInvoiceConfig {
+                            id_prefix: "location",
+                            location_id: Some(&location.id),
+                            amounts: &[
+                                ("1000", "1K"),
+                                ("5000", "5K"),
+                                ("10000", "10K"),
+                                ("custom", "Custom"),
+                            ],
+                            label: Some("Donate to this location"),
+                        }))
                     }
                 }
             }
@@ -680,120 +663,17 @@ pub fn location_detail(
         "#))
 
         // Location donation script
-        (PreEscaped(r#"
-        <script>
-            // Location donation amount button handlers
-            document.querySelectorAll('.location-amount-btn').forEach(button => {
-                button.addEventListener('click', async function() {
-                    const amount = this.dataset.amount;
-                    const locationId = this.dataset.locationId;
-
-                    if (amount === 'custom') {
-                        document.getElementById('locationCustomAmountDiv').classList.remove('hidden');
-                    } else {
-                        await generateLocationInvoice(parseInt(amount), locationId);
-                    }
-                });
-            });
-
-            // Custom amount submit
-            document.getElementById('locationCustomSubmit').addEventListener('click', async function() {
-                const customAmount = parseInt(document.getElementById('locationCustomAmount').value);
-                const locationId = this.dataset.locationId;
-                if (customAmount > 0) {
-                    await generateLocationInvoice(customAmount, locationId);
-                } else {
-                    alert('Please enter a valid amount');
-                }
-            });
-
-            async function generateLocationInvoice(amount, locationId) {
-                try {
-                    // Hide amount selection
-                    document.getElementById('locationAmountSelection').classList.add('hidden');
-                    document.getElementById('locationCustomAmountDiv').classList.add('hidden');
-
-                    // Show loading
-                    document.getElementById('locationInvoiceArea').innerHTML = `
-                        <div class="text-center py-8">
-                            <div class="animate-spin rounded-full h-12 w-12 border-b-2 mx-auto mb-4" style="border-color: var(--highlight);"></div>
-                            <p class="text-secondary font-bold">GENERATING INVOICE...</p>
-                        </div>
-                    `;
-                    document.getElementById('locationInvoiceArea').classList.remove('hidden');
-
-                    // Generate invoice with location_id
-                    const response = await fetch('/api/donate/invoice', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({ amount: amount, location_id: locationId })
-                    });
-
-                    if (!response.ok) {
-                        throw new Error('Failed to generate invoice');
-                    }
-
-                    const data = await response.json();
-
-                    // Display invoice and QR code
-                    document.getElementById('locationInvoiceArea').innerHTML = `
-                        <div class="p-6" style="background: var(--bg-tertiary); border: 2px solid var(--accent-muted);">
-                            <div class="text-center mb-4">
-                                <p class="text-2xl font-black text-highlight orange">${amount.toLocaleString()} SATS</p>
-                                <p class="text-sm text-muted font-bold">SCAN WITH YOUR LIGHTNING WALLET</p>
-                            </div>
-                            <div class="bg-white p-4 inline-block mx-auto block" style="border: 3px solid var(--accent-border);">
-                                <img src="${data.qr_code}" alt="Invoice QR Code" class="w-48 h-48 mx-auto">
-                            </div>
-                            <details class="mt-4">
-                                <summary class="cursor-pointer text-muted hover:text-secondary text-sm font-bold">
-                                    SHOW INVOICE STRING
-                                </summary>
-                                <div class="mt-2 p-3 text-xs font-mono break-all text-secondary" style="background: var(--bg-secondary); border: 2px solid var(--accent-muted);">
-                                    ${data.invoice}
-                                </div>
-                            </details>
-                            <div class="mt-6 p-3 flex items-center gap-2" style="background: var(--highlight-glow); border: 2px solid var(--highlight);">
-                                <i class="fa-solid fa-hourglass-half animate-pulse text-highlight"></i>
-                                <span class="text-sm font-bold text-primary">WAITING FOR PAYMENT...</span>
-                            </div>
-                            <button type="button" onclick="resetLocationDonation()" class="btn-brutal mt-4 w-full">
-                                CANCEL
-                            </button>
-                        </div>
-                    `;
-
-                    // Start waiting for payment
-                    const paymentStatusDiv = document.getElementById('locationPaymentStatus');
-                    paymentStatusDiv.setAttribute('hx-get', `/api/donate/wait/${data.invoice}:${amount}`);
-                    paymentStatusDiv.setAttribute('hx-trigger', 'load');
-                    paymentStatusDiv.setAttribute('hx-swap', 'innerHTML');
-                    htmx.process(paymentStatusDiv);
-
-                } catch (error) {
-                    console.error('Error:', error);
-                    document.getElementById('locationInvoiceArea').innerHTML = `
-                        <div class="p-4" style="background: var(--highlight-glow); border: 2px solid var(--highlight);">
-                            <p class="font-bold text-highlight">ERROR</p>
-                            <p class="text-sm text-secondary">${error.message}</p>
-                        </div>
-                    `;
-                    // Show amount selection again
-                    document.getElementById('locationAmountSelection').classList.remove('hidden');
-                }
-            }
-
-            function resetLocationDonation() {
-                document.getElementById('locationInvoiceArea').classList.add('hidden');
-                document.getElementById('locationInvoiceArea').innerHTML = '';
-                document.getElementById('locationAmountSelection').classList.remove('hidden');
-                document.getElementById('locationCustomAmountDiv').classList.add('hidden');
-                document.getElementById('locationPaymentStatus').innerHTML = '';
-            }
-        </script>
-        "#))
+        (donation_invoice_script(&DonationInvoiceConfig {
+            id_prefix: "location",
+            location_id: Some(&location.id),
+            amounts: &[
+                ("1000", "1K"),
+                ("5000", "5K"),
+                ("10000", "10K"),
+                ("custom", "Custom"),
+            ],
+            label: Some("Donate to this location"),
+        }))
 
     }
 }
@@ -809,15 +689,6 @@ fn delete_button(location_id: &str) -> Markup {
             }
             class="btn-brutal" style="border-color: var(--accent-muted); color: var(--text-muted);" {
             i class="fa-solid fa-trash" {}
-        }
-    }
-}
-
-fn location_amount_button(amount: &str, label: &str, location_id: &str) -> Markup {
-    html! {
-        button type="button" data-amount=(amount) data-location-id=(location_id)
-            class="location-amount-btn btn-brutal font-black" {
-            (label)
         }
     }
 }

@@ -1,4 +1,5 @@
 pub mod collect;
+pub mod components;
 pub mod donate;
 pub mod home;
 pub mod layout;

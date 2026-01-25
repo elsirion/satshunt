@@ -313,9 +313,9 @@ pub async fn wait_for_donation(
     State(state): State<Arc<AppState>>,
     Path(invoice_and_amount): Path<String>,
 ) -> Result<axum::response::Html<String>, StatusCode> {
-    // Invoice format: {invoice_string}:{amount}
+    // Invoice format: {invoice_string}:{amount}:{prefix}
     let parts: Vec<&str> = invoice_and_amount.split(':').collect();
-    if parts.len() != 2 {
+    if parts.len() != 3 {
         tracing::error!("Invalid invoice format");
         return Err(StatusCode::BAD_REQUEST);
     }
@@ -325,6 +325,7 @@ pub async fn wait_for_donation(
         tracing::error!("Invalid amount in path");
         StatusCode::BAD_REQUEST
     })?;
+    let prefix = parts[2];
 
     tracing::info!("Polling for payment of {} sats invoice", amount);
 
@@ -355,27 +356,35 @@ pub async fn wait_for_donation(
                             .unwrap_or(0);
 
                         format!(
-                            r#"<div id="paymentStatus" class="bg-green-900 border border-green-700 text-green-200 px-4 py-3 rounded-lg">
-                                <p class="font-semibold">✓ Payment received!</p>
-                                <p class="text-sm mt-1">Thank you for donating {} sats to '{}'!</p>
-                            </div>
-                            <div class="text-center mt-4">
-                                <p class="text-sm text-slate-400 mb-1">{}'s Donation Pool</p>
-                                <p class="text-4xl font-bold text-yellow-400">{} ⚡</p>
+                            r#"<div class="p-6" style="background: var(--bg-tertiary); border: 2px solid var(--accent-muted);">
+                                <div class="p-3 flex items-center gap-2" style="background: rgba(107, 155, 107, 0.25); border: 2px solid var(--color-success);">
+                                    <i class="fa-solid fa-check-circle" style="color: var(--color-success);"></i>
+                                    <span class="text-sm font-bold text-primary">Payment received! Thank you for donating {} sats to '{}'!</span>
+                                </div>
+                                <div class="text-center mt-4">
+                                    <p class="text-sm text-muted font-bold">{}'s Donation Pool</p>
+                                    <p class="text-3xl font-black text-highlight orange">{} <i class="fa-solid fa-bolt"></i></p>
+                                </div>
+                                <button type="button" onclick="reset{}Donation()" class="btn-brutal mt-4 w-full">Done</button>
                             </div>"#,
                             amount,
                             location.name,
                             location.name,
-                            pool_balance_msats / 1000
+                            pool_balance_msats / 1000,
+                            if prefix.is_empty() { "" } else { "Location" }
                         )
                     } else {
                         // Location was deleted, fall back to generic message
                         format!(
-                            r#"<div id="paymentStatus" class="bg-green-900 border border-green-700 text-green-200 px-4 py-3 rounded-lg">
-                                <p class="font-semibold">✓ Payment received!</p>
-                                <p class="text-sm mt-1">Thank you for donating {} sats!</p>
+                            r#"<div class="p-6" style="background: var(--bg-tertiary); border: 2px solid var(--accent-muted);">
+                                <div class="p-3 flex items-center gap-2" style="background: rgba(107, 155, 107, 0.25); border: 2px solid var(--color-success);">
+                                    <i class="fa-solid fa-check-circle" style="color: var(--color-success);"></i>
+                                    <span class="text-sm font-bold text-primary">Payment received! Thank you for donating {} sats!</span>
+                                </div>
+                                <button type="button" onclick="reset{}Donation()" class="btn-brutal mt-4 w-full">Done</button>
                             </div>"#,
-                            amount
+                            amount,
+                            if prefix.is_empty() { "" } else { "Location" }
                         )
                     }
                 } else {
@@ -393,15 +402,21 @@ pub async fn wait_for_donation(
                     };
 
                     format!(
-                        r#"<div id="paymentStatus" class="bg-green-900 border border-green-700 text-green-200 px-4 py-3 rounded-lg">
-                            <p class="font-semibold">✓ Payment received!</p>
-                            <p class="text-sm mt-1">Thank you for donating {} sats!</p>
-                        </div>
-                        <div class="text-center mt-4">
-                            <p class="text-sm text-slate-400 mb-1">Split Among {} Locations</p>
-                            <p class="text-4xl font-bold text-yellow-400">{} ⚡ each</p>
+                        r#"<div class="p-6" style="background: var(--bg-tertiary); border: 2px solid var(--accent-muted);">
+                            <div class="p-3 flex items-center gap-2" style="background: rgba(107, 155, 107, 0.25); border: 2px solid var(--color-success);">
+                                <i class="fa-solid fa-check-circle" style="color: var(--color-success);"></i>
+                                <span class="text-sm font-bold text-primary">Payment received! Thank you for donating {} sats!</span>
+                            </div>
+                            <div class="text-center mt-4">
+                                <p class="text-sm text-muted font-bold">Split Among {} Locations</p>
+                                <p class="text-3xl font-black text-highlight orange">{} <i class="fa-solid fa-bolt"></i> each</p>
+                            </div>
+                            <button type="button" onclick="reset{}Donation()" class="btn-brutal mt-4 w-full">Done</button>
                         </div>"#,
-                        amount, num_locations, per_location
+                        amount,
+                        num_locations,
+                        per_location,
+                        if prefix.is_empty() { "" } else { "Location" }
                     )
                 };
 
@@ -429,13 +444,20 @@ pub async fn wait_for_donation(
 
     // Timeout - return a message asking user to check later
     // The payment might still come through and will be credited by the background service
-    let html = r#"<div id="paymentStatus" class="bg-yellow-900 border border-yellow-700 text-yellow-200 px-4 py-3 rounded-lg">
-            <p class="font-semibold">⏳ Still waiting for payment...</p>
-            <p class="text-sm mt-1">The invoice is still valid. If you've already paid, your donation will be credited shortly.</p>
-            <p class="text-sm mt-1">You can safely close this page - the payment will be processed automatically.</p>
-        </div>"#;
+    let html = format!(
+        r#"<div class="p-6" style="background: var(--bg-tertiary); border: 2px solid var(--accent-muted);">
+            <div class="p-3 flex items-center gap-2" style="background: rgba(181, 152, 107, 0.25); border: 2px solid var(--color-warning);">
+                <i class="fa-solid fa-hourglass-half" style="color: var(--color-warning);"></i>
+                <span class="text-sm font-bold text-primary">Still waiting for payment...</span>
+            </div>
+            <p class="text-sm text-secondary mt-3">The invoice is still valid. If you've already paid, your donation will be credited shortly.</p>
+            <p class="text-sm text-muted mt-1">You can safely close this page - the payment will be processed automatically.</p>
+            <button type="button" onclick="reset{}Donation()" class="btn-brutal mt-4 w-full">Close</button>
+        </div>"#,
+        if prefix.is_empty() { "" } else { "Location" }
+    );
 
-    Ok(axum::response::Html(html.to_string()))
+    Ok(axum::response::Html(html))
 }
 
 /// Generate a random 32-character hex string for card keys
