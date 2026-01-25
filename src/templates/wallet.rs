@@ -1,6 +1,15 @@
 use crate::models::{User, UserTransaction};
 use maud::{html, Markup, PreEscaped};
 
+/// Calculate the withdrawable amount after fees (2 sat fixed + 0.5% routing)
+fn withdrawable_after_fees(balance_sats: i64) -> i64 {
+    let balance_msats = balance_sats * 1000;
+    let routing_fee_msats = ((balance_msats as f64) * 0.005).ceil() as i64;
+    let fixed_fee_msats = 2000; // 2 sats
+    let total_fee_msats = routing_fee_msats + fixed_fee_msats;
+    ((balance_msats - total_fee_msats).max(0)) / 1000
+}
+
 /// Render the wallet page showing user's balance and transaction history.
 pub fn wallet(
     balance_sats: i64,
@@ -11,6 +20,8 @@ pub fn wallet(
     location_name: Option<&str>,
     lnurlw_string: Option<&str>,
 ) -> Markup {
+    let withdrawable_sats = withdrawable_after_fees(balance_sats);
+    let fee_sats = balance_sats - withdrawable_sats;
     html! {
         div class="max-w-2xl mx-auto" {
             // Success message for collection
@@ -116,83 +127,120 @@ pub fn wallet(
                         // Tab content: LNURL-withdraw link
                         div id="content-lnurl" class="withdraw-content" {
                             div class="text-center" {
-                                p class="text-sm text-secondary mb-4 font-bold" {
-                                    "Open with your Lightning wallet to withdraw "
-                                    span class="text-highlight orange" { (balance_sats) }
-                                    " sats."
-                                }
-                                @if let Some(lnurl) = lnurlw_string {
-                                    a
-                                        href={"lightning:" (lnurl)}
-                                        class="btn-brutal-fill inline-block"
-                                        style="background: var(--highlight); border-color: var(--highlight);" {
-                                        i class="fa-solid fa-bolt mr-2" {}
-                                        "OPEN IN WALLET"
+                                @if withdrawable_sats > 0 {
+                                    p class="text-sm text-secondary mb-2 font-bold" {
+                                        "Open with your Lightning wallet to withdraw"
+                                    }
+                                    div class="mb-4 p-3" style="background: var(--bg-tertiary); border: 2px solid var(--accent-muted);" {
+                                        div class="text-2xl font-black text-highlight orange" {
+                                            (withdrawable_sats) " sats"
+                                        }
+                                        div class="text-xs text-muted mt-1" {
+                                            "(" (fee_sats) " sats fee: 2 sats + 0.5% routing)"
+                                        }
+                                    }
+                                    @if let Some(lnurl) = lnurlw_string {
+                                        a
+                                            href={"lightning:" (lnurl)}
+                                            class="btn-brutal-fill inline-block"
+                                            style="background: var(--highlight); border-color: var(--highlight);" {
+                                            i class="fa-solid fa-bolt mr-2" {}
+                                            "OPEN IN WALLET"
+                                        }
+                                    } @else {
+                                        p class="text-muted" { "LNURL not available" }
                                     }
                                 } @else {
-                                    p class="text-muted" { "LNURL not available" }
+                                    p class="text-muted font-bold" {
+                                        "Balance too low to withdraw (minimum ~3 sats to cover fees)"
+                                    }
                                 }
                             }
                         }
 
                         // Tab content: Lightning Address
                         div id="content-address" class="withdraw-content hidden" {
-                            form id="withdraw-form-address" class="space-y-4" {
-                                div {
-                                    label class="label-brutal text-xs mb-2 block" for="ln_address" {
-                                        "LIGHTNING ADDRESS"
+                            @if withdrawable_sats > 0 {
+                                form id="withdraw-form-address" class="space-y-4" {
+                                    div {
+                                        label class="label-brutal text-xs mb-2 block" for="ln_address" {
+                                            "LIGHTNING ADDRESS"
+                                        }
+                                        input
+                                            type="text"
+                                            id="ln_address"
+                                            name="ln_address"
+                                            placeholder="you@wallet.com"
+                                            required
+                                            class="input-brutal w-full"
+                                            style="background: var(--bg-tertiary); border: 3px solid var(--accent-muted); padding: 12px; font-size: 16px;";
                                     }
-                                    input
-                                        type="text"
-                                        id="ln_address"
-                                        name="ln_address"
-                                        placeholder="you@wallet.com"
-                                        required
-                                        class="input-brutal w-full"
-                                        style="background: var(--bg-tertiary); border: 3px solid var(--accent-muted); padding: 12px; font-size: 16px;";
+                                    div class="p-3" style="background: var(--bg-tertiary); border: 2px solid var(--accent-muted);" {
+                                        div class="flex justify-between items-center" {
+                                            span class="text-sm text-secondary font-bold" { "You'll receive:" }
+                                            span class="text-lg font-black text-highlight orange" { (withdrawable_sats) " sats" }
+                                        }
+                                        div class="text-xs text-muted mt-1" {
+                                            "(" (fee_sats) " sats fee: 2 sats + 0.5% routing)"
+                                        }
+                                    }
+                                    button
+                                        type="submit"
+                                        id="withdraw-btn-address"
+                                        class="btn-brutal-fill w-full"
+                                        style="background: var(--highlight); border-color: var(--highlight);" {
+                                        i class="fa-solid fa-arrow-right-from-bracket mr-2" {}
+                                        "WITHDRAW " (withdrawable_sats) " SATS"
+                                    }
                                 }
-                                p class="text-xs text-muted font-bold" {
-                                    "Enter your Lightning address to withdraw your entire balance."
-                                }
-                                button
-                                    type="submit"
-                                    id="withdraw-btn-address"
-                                    class="btn-brutal-fill w-full"
-                                    style="background: var(--highlight); border-color: var(--highlight);" {
-                                    i class="fa-solid fa-arrow-right-from-bracket mr-2" {}
-                                    "WITHDRAW " (balance_sats) " SATS"
+                            } @else {
+                                p class="text-muted font-bold text-center" {
+                                    "Balance too low to withdraw (minimum ~3 sats to cover fees)"
                                 }
                             }
                         }
 
                         // Tab content: Paste Invoice
                         div id="content-invoice" class="withdraw-content hidden" {
-                            form id="withdraw-form-invoice" class="space-y-4" {
-                                div {
-                                    label class="label-brutal text-xs mb-2 block" for="invoice" {
-                                        "LIGHTNING INVOICE"
+                            @if withdrawable_sats > 0 {
+                                form id="withdraw-form-invoice" class="space-y-4" {
+                                    div {
+                                        label class="label-brutal text-xs mb-2 block" for="invoice" {
+                                            "LIGHTNING INVOICE"
+                                        }
+                                        textarea
+                                            id="invoice"
+                                            name="invoice"
+                                            placeholder="lnbc..."
+                                            required
+                                            rows="4"
+                                            class="input-brutal w-full font-mono text-sm"
+                                            style="background: var(--bg-tertiary); border: 3px solid var(--accent-muted); padding: 12px; resize: vertical;" {}
                                     }
-                                    textarea
-                                        id="invoice"
-                                        name="invoice"
-                                        placeholder="lnbc..."
-                                        required
-                                        rows="4"
-                                        class="input-brutal w-full font-mono text-sm"
-                                        style="background: var(--bg-tertiary); border: 3px solid var(--accent-muted); padding: 12px; resize: vertical;" {}
+                                    div class="p-3" style="background: var(--bg-tertiary); border: 2px solid var(--accent-muted);" {
+                                        p class="text-sm text-secondary font-bold mb-2" {
+                                            "Create an invoice in your wallet and paste it here."
+                                        }
+                                        div class="flex justify-between items-center" {
+                                            span class="text-sm text-secondary font-bold" { "Max withdrawal:" }
+                                            span class="text-lg font-black text-highlight orange" { (withdrawable_sats) " sats" }
+                                        }
+                                        div class="text-xs text-muted mt-1" {
+                                            "(" (fee_sats) " sats fee: 2 sats + 0.5% routing)"
+                                        }
+                                    }
+                                    button
+                                        type="submit"
+                                        id="withdraw-btn-invoice"
+                                        class="btn-brutal-fill w-full"
+                                        style="background: var(--highlight); border-color: var(--highlight);" {
+                                        i class="fa-solid fa-arrow-right-from-bracket mr-2" {}
+                                        "PAY INVOICE"
+                                    }
                                 }
-                                p class="text-xs text-muted font-bold" {
-                                    "Create an invoice in your wallet for the amount you want to withdraw (max "
-                                    span class="text-highlight orange" { (balance_sats) }
-                                    " sats) and paste it here."
-                                }
-                                button
-                                    type="submit"
-                                    id="withdraw-btn-invoice"
-                                    class="btn-brutal-fill w-full"
-                                    style="background: var(--highlight); border-color: var(--highlight);" {
-                                    i class="fa-solid fa-arrow-right-from-bracket mr-2" {}
-                                    "PAY INVOICE"
+                            } @else {
+                                p class="text-muted font-bold text-center" {
+                                    "Balance too low to withdraw (minimum ~3 sats to cover fees)"
                                 }
                             }
                         }

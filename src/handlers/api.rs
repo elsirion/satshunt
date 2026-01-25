@@ -44,6 +44,39 @@ pub struct AppState {
     pub withdraw_secret: Vec<u8>,
 }
 
+/// Calculate Lightning network fees for a withdrawal.
+/// Returns (max_withdrawable_msats, fee_msats) given a balance in msats.
+/// Fee structure: 2 sats fixed + 0.5% routing fee
+fn calculate_withdrawal_fees(balance_msats: i64) -> (i64, i64) {
+    let routing_fee_msats = ((balance_msats as f64) * 0.005).ceil() as i64;
+    let fixed_fee_msats = 2000; // 2 sats
+    let total_fee_msats = routing_fee_msats + fixed_fee_msats;
+    let max_withdrawable_msats = (balance_msats - total_fee_msats).max(0);
+    (max_withdrawable_msats, total_fee_msats)
+}
+
+/// Check if an invoice amount plus fees fits within balance.
+/// Returns Ok(fee_msats) if valid, or Err with error message.
+fn check_invoice_with_fees(invoice_msats: i64, balance_msats: i64) -> Result<i64, String> {
+    // Calculate fee for this specific invoice amount
+    let routing_fee_msats = ((invoice_msats as f64) * 0.005).ceil() as i64;
+    let fixed_fee_msats = 2000; // 2 sats
+    let total_fee_msats = routing_fee_msats + fixed_fee_msats;
+    let total_required_msats = invoice_msats + total_fee_msats;
+
+    if total_required_msats > balance_msats {
+        let max_after_fees = calculate_withdrawal_fees(balance_msats).0 / 1000;
+        Err(format!(
+            "Invoice ({} sats) + fees ({} sats) exceeds balance. Max withdrawal: {} sats.",
+            invoice_msats / 1000,
+            total_fee_msats / 1000,
+            max_after_fees
+        ))
+    } else {
+        Ok(total_fee_msats)
+    }
+}
+
 /// Create a signed withdrawal token for a user.
 /// Format: "{user_id}:{timestamp}:{signature}"
 /// The token is valid for 1 hour.
@@ -1799,17 +1832,21 @@ pub async fn wallet_withdraw(
         }
     };
 
-    // Check minimum withdrawal amount (at least 1 sat)
-    if balance_msats < 1000 {
+    // Calculate withdrawable amount after fees
+    let (max_withdraw_msats, _fee_msats) = calculate_withdrawal_fees(balance_msats);
+
+    // Check minimum withdrawal amount (need enough to cover fees + at least 1 sat)
+    if max_withdraw_msats < 1000 {
         return error_response(
             user.jar,
             StatusCode::BAD_REQUEST,
-            "Insufficient balance. You need at least 1 sat to withdraw.",
+            "Insufficient balance to cover fees. You need at least ~3 sats to withdraw.",
         );
     }
 
-    let balance_sats = balance_msats / 1000;
-    let withdraw_msats = balance_sats * 1000; // Round down to whole sats
+    // Round down to whole sats for the invoice
+    let withdraw_sats = max_withdraw_msats / 1000;
+    let withdraw_msats = withdraw_sats * 1000;
 
     // Resolve LN address and get invoice (do this before reserving balance)
     let invoice = match lnurl::get_invoice_for_ln_address(&payload.ln_address, withdraw_msats).await
@@ -1828,7 +1865,7 @@ pub async fn wallet_withdraw(
                 StatusCode::BAD_REQUEST,
                 &format!(
                     "Amount {} sats is outside the allowed range ({}-{} sats)",
-                    balance_sats,
+                    withdraw_sats,
                     min / 1000,
                     max / 1000
                 ),
@@ -1974,8 +2011,6 @@ pub async fn wallet_withdraw_invoice(
         );
     }
 
-    let invoice_sats = invoice_msats / 1000;
-
     // Get user balance
     let balance_msats = match state.db.get_user_balance(&user.user_id).await {
         Ok(balance) => balance,
@@ -1989,18 +2024,9 @@ pub async fn wallet_withdraw_invoice(
         }
     };
 
-    let balance_sats = balance_msats / 1000;
-
-    // Check if user has enough balance for the invoice amount
-    if invoice_msats > balance_msats {
-        return error_response(
-            user.jar,
-            StatusCode::BAD_REQUEST,
-            &format!(
-                "Insufficient balance. Invoice is for {} sats but you only have {} sats.",
-                invoice_sats, balance_sats
-            ),
-        );
+    // Check if user has enough balance for the invoice amount + fees
+    if let Err(msg) = check_invoice_with_fees(invoice_msats, balance_msats) {
+        return error_response(user.jar, StatusCode::BAD_REQUEST, &msg);
     }
 
     // Create pending withdrawal to reserve the balance
@@ -2027,7 +2053,7 @@ pub async fn wallet_withdraw_invoice(
         }
     };
 
-    let withdrawn_sats = invoice_sats;
+    let withdrawn_sats = invoice_msats / 1000;
 
     // Pay the invoice
     if let Err(e) = state.lightning.pay_invoice(invoice_str).await {
@@ -2120,18 +2146,22 @@ pub async fn wallet_lnurlw_request(
         }
     };
 
-    // Check minimum withdrawal amount
-    if balance_msats < 1000 {
+    // Calculate withdrawable amount after fees
+    let (max_withdraw_msats, _fee_msats) = calculate_withdrawal_fees(balance_msats);
+
+    // Check minimum withdrawal amount (need enough to cover fees + at least 1 sat)
+    if max_withdraw_msats < 1000 {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(LnurlCallbackResponse::error(
-                "Insufficient balance. You need at least 1 sat to withdraw.",
+                "Insufficient balance to cover fees. You need at least ~3 sats to withdraw.",
             )),
         ));
     }
 
-    let balance_sats = balance_msats / 1000;
-    let withdraw_msats = balance_sats * 1000; // Round down to whole sats
+    // Round down to whole sats
+    let withdraw_sats = max_withdraw_msats / 1000;
+    let withdraw_msats = withdraw_sats * 1000;
 
     // Build callback URL - pass the token through for the callback to verify
     let callback = format!(
@@ -2147,7 +2177,7 @@ pub async fn wallet_lnurlw_request(
         tag: "withdrawRequest".to_string(),
         callback,
         k1,
-        default_description: format!("Withdraw {} sats from SatsHunt wallet", balance_sats),
+        default_description: format!("Withdraw {} sats from SatsHunt wallet", withdraw_sats),
         min_withdrawable: withdraw_msats,
         max_withdrawable: withdraw_msats,
     }))
@@ -2220,13 +2250,11 @@ pub async fn wallet_lnurlw_callback(
         )
     })?;
 
-    // Check if user has enough balance
-    if invoice_msats > balance_msats {
+    // Check if user has enough balance for invoice + fees
+    if let Err(msg) = check_invoice_with_fees(invoice_msats, balance_msats) {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(LnurlCallbackResponse::error(
-                "Invoice amount exceeds available balance.",
-            )),
+            Json(LnurlCallbackResponse::error(&msg)),
         ));
     }
 
