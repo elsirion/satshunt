@@ -77,7 +77,10 @@ hmac = "0.12"
 sha2 = "0.10"
 
 # HTTP client for LN address resolution
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.12", features = [
+    "json",
+    "rustls-tls",
+], default-features = false }
 
 # LNURL bech32 encoding
 bech32 = "0.11"
