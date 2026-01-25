@@ -62,6 +62,34 @@ pub fn base_with_user(title: &str, content: Markup, username: Option<&str>) -> M
                                 }
                             });
                         }
+
+                        // User menu dropdown toggle
+                        const userMenuBtn = document.getElementById('user-menu-button');
+                        const userMenuDropdown = document.getElementById('user-menu-dropdown');
+                        if (userMenuBtn && userMenuDropdown) {
+                            userMenuBtn.addEventListener('click', function(e) {
+                                e.stopPropagation();
+                                userMenuDropdown.classList.toggle('hidden');
+                                const expanded = !userMenuDropdown.classList.contains('hidden');
+                                userMenuBtn.setAttribute('aria-expanded', expanded);
+                            });
+
+                            // Close dropdown when clicking outside
+                            document.addEventListener('click', function(e) {
+                                if (!userMenuBtn.contains(e.target) && !userMenuDropdown.contains(e.target)) {
+                                    userMenuDropdown.classList.add('hidden');
+                                    userMenuBtn.setAttribute('aria-expanded', 'false');
+                                }
+                            });
+
+                            // Close dropdown on escape key
+                            document.addEventListener('keydown', function(e) {
+                                if (e.key === 'Escape' && !userMenuDropdown.classList.contains('hidden')) {
+                                    userMenuDropdown.classList.add('hidden');
+                                    userMenuBtn.setAttribute('aria-expanded', 'false');
+                                }
+                            });
+                        }
                     });
                     "#))
                 }
@@ -97,47 +125,73 @@ fn navbar(username: Option<&str>) -> Markup {
                                 }
                             }
                             li {
-                                a href="/locations/new" class="text-primary transition hover:text-highlight font-bold" {
-                                    "ADD LOCATION"
-                                }
-                            }
-                            li {
                                 a href="/donate" class="text-highlight transition hover:text-primary font-bold orange" {
                                     i class="fa-solid fa-coins mr-2" {}
                                     "DONATE"
                                 }
                             }
-                            li {
-                                a href="/wallet" class="text-primary transition hover:text-highlight font-bold" {
-                                    i class="fa-solid fa-wallet mr-2" {}
-                                    "WALLET"
-                                }
-                            }
                         }
                     }
 
-                    // Right: Login status (desktop)
-                    div class="hidden md:flex md:items-center md:gap-3" {
-                        @if let Some(user) = username {
-                            a href="/profile" class="flex items-center gap-2 px-3 py-2 bg-tertiary text-primary text-sm font-bold mono" style="border: 2px solid var(--accent-muted);" {
+                    // Right: User menu (desktop)
+                    div class="hidden md:flex md:items-center" {
+                        div class="relative" id="user-menu-container" {
+                            button type="button" id="user-menu-button"
+                                class="flex items-center gap-2 px-3 py-2 bg-tertiary text-primary text-sm font-bold mono hover:bg-elevated"
+                                style="border: 2px solid var(--accent-muted);"
+                                aria-expanded="false" aria-haspopup="true" {
                                 i class="fa-solid fa-user" {}
-                                (user)
-                            }
-                            form action="/logout" method="post" {
-                                button type="submit"
-                                    class="px-3 py-2 text-muted hover:text-primary text-sm font-bold" {
-                                    i class="fa-solid fa-right-from-bracket mr-1" {}
-                                    "LOGOUT"
+                                @if let Some(user) = username {
+                                    (user)
+                                } @else {
+                                    "anon"
                                 }
+                                i class="fa-solid fa-chevron-down ml-2 text-xs" {}
                             }
-                        } @else {
-                            a href="/login"
-                                class="px-3 py-2 text-primary text-sm font-bold" {
-                                "LOGIN"
-                            }
-                            a href="/register"
-                                class="btn-brutal-orange text-sm" style="padding: 0.5rem 1rem;" {
-                                "REGISTER"
+                            // Dropdown menu
+                            div id="user-menu-dropdown"
+                                class="hidden absolute right-0 mt-1 w-48 bg-tertiary"
+                                style="border: 3px solid var(--accent-muted); z-index: 50;" {
+                                div class="py-1" {
+                                    a href="/wallet" class="flex items-center gap-2 px-4 py-2 text-primary text-sm font-bold hover:bg-elevated hover:text-highlight" style="border-bottom: none;" {
+                                        i class="fa-solid fa-wallet w-4" {}
+                                        "WALLET"
+                                    }
+                                    @if username.is_some() {
+                                        a href="/locations" class="flex items-center gap-2 px-4 py-2 text-primary text-sm font-bold hover:bg-elevated hover:text-highlight" style="border-bottom: none;" {
+                                            i class="fa-solid fa-location-dot w-4" {}
+                                            "MY LOCATIONS"
+                                        }
+                                        a href="/locations/new" class="flex items-center gap-2 px-4 py-2 text-primary text-sm font-bold hover:bg-elevated hover:text-highlight" style="border-bottom: none;" {
+                                            i class="fa-solid fa-plus w-4" {}
+                                            "ADD LOCATION"
+                                        }
+                                    }
+                                }
+                                // Separator and auth options
+                                div style="border-top: 2px solid var(--accent-muted);" {
+                                    @if username.is_some() {
+                                        form action="/logout" method="post" class="w-full" {
+                                            button type="submit"
+                                                class="flex items-center gap-2 w-full px-4 py-2 text-muted hover:text-primary text-sm font-bold text-left cursor-pointer transition-colors"
+                                                style="border: none; background: transparent;"
+                                                onmouseover="this.style.backgroundColor='var(--bg-elevated)'"
+                                                onmouseout="this.style.backgroundColor='transparent'" {
+                                                i class="fa-solid fa-right-from-bracket w-4" {}
+                                                "LOGOUT"
+                                            }
+                                        }
+                                    } @else {
+                                        a href="/login" class="flex items-center gap-2 px-4 py-2 text-primary text-sm font-bold hover:bg-elevated hover:text-highlight" style="border-bottom: none;" {
+                                            i class="fa-solid fa-right-to-bracket w-4" {}
+                                            "LOGIN"
+                                        }
+                                        a href="/register" class="flex items-center gap-2 px-4 py-2 text-highlight text-sm font-bold hover:bg-elevated" style="border-bottom: none;" {
+                                            i class="fa-solid fa-user-plus w-4" {}
+                                            "REGISTER"
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -170,49 +224,61 @@ fn navbar(username: Option<&str>) -> Markup {
                             }
                         }
                         li {
-                            a href="/locations/new" class="block py-3 text-primary font-bold hover:text-highlight" style="border-bottom: none;" {
-                                "ADD LOCATION"
-                            }
-                        }
-                        li {
                             a href="/donate" class="block py-3 text-highlight font-bold hover:text-primary orange" style="border-bottom: none;" {
                                 i class="fa-solid fa-coins mr-2" {}
                                 "DONATE"
                             }
                         }
-                        li {
-                            a href="/wallet" class="block py-3 text-primary font-bold hover:text-highlight" style="border-bottom: none;" {
-                                i class="fa-solid fa-wallet mr-2" {}
-                                "WALLET"
-                            }
-                        }
                     }
 
-                    // Login status (mobile)
+                    // User section (mobile) - always show user with menu options
                     div class="py-4" style="border-top: 3px solid var(--accent-muted);" {
-                        @if let Some(user) = username {
-                            div class="space-y-3" {
-                                a href="/profile" class="flex items-center gap-2 py-2 px-3 bg-tertiary text-primary font-bold mono" style="border: 3px solid var(--accent-muted); border-bottom: 3px solid var(--accent-muted);" {
-                                    i class="fa-solid fa-user" {}
-                                    (user)
+                        // User display
+                        div class="flex items-center gap-2 py-2 px-3 bg-tertiary text-primary font-bold mono mb-3" style="border: 3px solid var(--accent-muted);" {
+                            i class="fa-solid fa-user" {}
+                            @if let Some(user) = username {
+                                (user)
+                            } @else {
+                                "anon"
+                            }
+                        }
+                        // Menu options
+                        div class="space-y-1" {
+                            a href="/wallet" class="flex items-center gap-2 py-2 px-3 text-primary font-bold hover:text-highlight hover:bg-tertiary" style="border-bottom: none;" {
+                                i class="fa-solid fa-wallet w-5" {}
+                                "WALLET"
+                            }
+                            @if username.is_some() {
+                                a href="/locations" class="flex items-center gap-2 py-2 px-3 text-primary font-bold hover:text-highlight hover:bg-tertiary" style="border-bottom: none;" {
+                                    i class="fa-solid fa-location-dot w-5" {}
+                                    "MY LOCATIONS"
                                 }
+                                a href="/locations/new" class="flex items-center gap-2 py-2 px-3 text-primary font-bold hover:text-highlight hover:bg-tertiary" style="border-bottom: none;" {
+                                    i class="fa-solid fa-plus w-5" {}
+                                    "ADD LOCATION"
+                                }
+                            }
+                        }
+                        // Auth options
+                        div class="mt-3 pt-3" style="border-top: 2px solid var(--accent-muted);" {
+                            @if username.is_some() {
                                 form action="/logout" method="post" {
                                     button type="submit"
-                                        class="w-full py-2 px-3 text-muted hover:text-primary font-bold text-left" style="border: none; background: none;" {
-                                        i class="fa-solid fa-right-from-bracket mr-2" {}
+                                        class="flex items-center gap-2 w-full py-2 px-3 text-muted hover:text-primary hover:bg-tertiary font-bold text-left cursor-pointer" style="border: none; background: none;" {
+                                        i class="fa-solid fa-right-from-bracket w-5" {}
                                         "LOGOUT"
                                     }
                                 }
-                            }
-                        } @else {
-                            div class="space-y-3" {
-                                a href="/login"
-                                    class="block py-2 px-3 text-primary font-bold" style="border-bottom: none;" {
-                                    "LOGIN"
-                                }
-                                a href="/register"
-                                    class="btn-brutal-orange block text-center" {
-                                    "REGISTER"
+                            } @else {
+                                div class="space-y-1" {
+                                    a href="/login" class="flex items-center gap-2 py-2 px-3 text-primary font-bold hover:text-highlight hover:bg-tertiary" style="border-bottom: none;" {
+                                        i class="fa-solid fa-right-to-bracket w-5" {}
+                                        "LOGIN"
+                                    }
+                                    a href="/register" class="flex items-center gap-2 py-2 px-3 text-highlight font-bold hover:bg-tertiary" style="border-bottom: none;" {
+                                        i class="fa-solid fa-user-plus w-5" {}
+                                        "REGISTER"
+                                    }
                                 }
                             }
                         }

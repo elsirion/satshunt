@@ -131,7 +131,7 @@ async fn main() -> Result<()> {
             get(auth(handlers::register_page)).post(handlers::register),
         )
         .route("/logout", post(handlers::logout))
-        .route("/profile", get(auth(handlers::profile_page)))
+        .route("/locations", get(auth(handlers::profile_page)))
         // API routes
         .route("/api/locations", post(handlers::create_location))
         .route(
