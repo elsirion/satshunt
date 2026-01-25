@@ -194,7 +194,7 @@ pub async fn donate_page(
             .unwrap_or(0);
     }
 
-    let received_donations = state.db.list_all_received_donations().await.map_err(|e| {
+    let received_donations = state.db.list_all_received_donations(50).await.map_err(|e| {
         tracing::error!("Failed to get received donations: {}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;

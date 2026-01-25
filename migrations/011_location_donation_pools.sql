@@ -25,7 +25,3 @@ CREATE TABLE location_pool_debits (
 );
 
 CREATE INDEX idx_location_pool_debits_location ON location_pool_debits(location_id);
-
--- Drop old tables
-DROP TABLE pending_donations;
-DROP TABLE donation_pool;

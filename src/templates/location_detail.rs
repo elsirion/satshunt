@@ -505,15 +505,30 @@ pub fn location_detail(
                             thead {
                                 tr style="border-bottom: 2px solid var(--accent-muted);" {
                                     th class="text-left py-3 px-4 text-secondary font-black" { "DATE" }
+                                    th class="text-left py-3 px-4 text-secondary font-black" { "SOURCE" }
                                     th class="text-right py-3 px-4 text-secondary font-black" { "AMOUNT" }
                                 }
                             }
                             tbody {
                                 @for donation in donations {
+                                    @let is_global = donation.invoice.contains("-split-");
                                     tr style="border-bottom: 2px solid var(--accent-muted);" class="hover:bg-tertiary transition-colors" {
                                         td class="py-3 px-4 text-secondary font-bold mono text-sm" {
                                             @if let Some(received_at) = donation.received_at {
                                                 (received_at.format("%Y-%m-%d %H:%M UTC"))
+                                            }
+                                        }
+                                        td class="py-3 px-4 text-sm font-bold" {
+                                            @if is_global {
+                                                span class="text-muted" {
+                                                    i class="fa-solid fa-globe mr-1" {}
+                                                    "Global"
+                                                }
+                                            } @else {
+                                                span class="text-highlight orange" {
+                                                    i class="fa-solid fa-location-dot mr-1" {}
+                                                    "Direct"
+                                                }
                                             }
                                         }
                                         td class="py-3 px-4 text-right mono" {

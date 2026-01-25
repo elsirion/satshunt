@@ -440,11 +440,23 @@ impl Database {
         .map_err(Into::into)
     }
 
-    /// List all received donations (global and location-specific)
-    pub async fn list_all_received_donations(&self) -> Result<Vec<Donation>> {
+    /// List all received donations (global and location-specific), excluding split entries.
+    ///
+    /// Global donations create split entries with invoice format "{original}-split-{location_id}".
+    /// We filter these out to show one entry per actual donation:
+    /// - Global donations show with their full amount (location_id IS NULL)
+    /// - Per-location donations show as-is (no splits created for them)
+    pub async fn list_all_received_donations(&self, limit: i64) -> Result<Vec<Donation>> {
         sqlx::query_as::<_, Donation>(
-            "SELECT * FROM donations WHERE status = 'received' ORDER BY received_at DESC",
+            r#"
+            SELECT * FROM donations
+            WHERE status = 'received'
+              AND invoice NOT LIKE '%-split-%'
+            ORDER BY received_at DESC
+            LIMIT ?
+            "#,
         )
+        .bind(limit)
         .fetch_all(&self.pool)
         .await
         .map_err(Into::into)
