@@ -26,25 +26,19 @@ pub fn wallet(
         div class="max-w-2xl mx-auto" {
             // Success message for collection
             @if let (Some("collected"), Some(amt)) = (success, amount) {
-                div class="alert-brutal mb-6" style="background: var(--color-success); border-color: var(--color-success);" {
-                    p class="font-bold text-white" {
-                        i class="fa-solid fa-check-circle mr-2" {}
-                        "Collected " (amt) " sats"
-                        @if let Some(name) = location_name {
-                            " from " (name)
-                        }
-                        "!"
+                div class="alert-brutal green success mb-6" {
+                    "Collected " (amt) " sats"
+                    @if let Some(name) = location_name {
+                        " from " (name)
                     }
+                    "!"
                 }
             }
 
             // Success message for withdrawal
             @if let (Some("withdrawn"), Some(amt)) = (success, amount) {
-                div class="alert-brutal mb-6" style="background: var(--color-success); border-color: var(--color-success);" {
-                    p class="font-bold text-white" {
-                        i class="fa-solid fa-check-circle mr-2" {}
-                        "Withdrew " (amt) " sats!"
-                    }
+                div class="alert-brutal green success mb-6" {
+                    "Withdrew " (amt) " sats!"
                 }
             }
 

@@ -6,471 +6,498 @@
  */
 
 :root {
-  /* Layout */
-  --max-content-width: 1280px;
+    /* Layout */
+    --max-content-width: 1280px;
 
-  /* Background - pure monochrome */
-  --bg-primary: #000000;
-  --bg-secondary: #0f0f0f;
-  --bg-tertiary: #1a1a1a;
-  --bg-elevated: #242424;
+    /* Background - pure monochrome */
+    --bg-primary: #000000;
+    --bg-secondary: #0f0f0f;
+    --bg-tertiary: #1a1a1a;
+    --bg-elevated: #242424;
 
-  /* Accent - steel grey */
-  --accent-primary: #999999;
-  --accent-hover: #bbbbbb;
-  --accent-muted: #333333;
-  --accent-subtle: rgba(153, 153, 153, 0.1);
-  --accent-border: #222222;
+    /* Accent - steel grey */
+    --accent-primary: #999999;
+    --accent-hover: #bbbbbb;
+    --accent-muted: #333333;
+    --accent-subtle: rgba(153, 153, 153, 0.1);
+    --accent-border: #222222;
 
-  /* Highlight — Bitcoin orange (only color) */
-  --highlight: #f79321;
-  --highlight-glow: rgba(247, 147, 26, 0.15);
-  --highlight-dark: #e08419;
+    /* Highlight — Bitcoin orange (only color) */
+    --highlight: #f79321;
+    --highlight-glow: rgba(247, 147, 26, 0.15);
+    --highlight-dark: #e08419;
 
-  /* Text - reduced brightness */
-  --text-primary: #d0d0d0;
-  --text-secondary: #888888;
-  --text-muted: #555555;
-  --text-inverse: #000000;
+    /* Text - reduced brightness */
+    --text-primary: #d0d0d0;
+    --text-secondary: #888888;
+    --text-muted: #555555;
+    --text-inverse: #000000;
 
-  /* Semantic - minimal color */
-  --color-success: #d0d0d0;
-  --color-error: #d0d0d0;
-  --color-warning: #d0d0d0;
-  --color-info: #d0d0d0;
+    /* Semantic - minimal color */
+    --color-success: #d0d0d0;
+    --color-error: #d0d0d0;
+    --color-warning: #d0d0d0;
+    --color-info: #d0d0d0;
 }
 
 /* Base styles */
 body {
-  background-color: var(--bg-primary);
-  color: var(--text-primary);
-  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
-  font-weight: 700;
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-weight: 700;
 }
 
 /* Monospace for data */
-.mono, code {
-  font-family: "Courier New", Courier, monospace;
-  font-weight: 700;
+.mono,
+code {
+    font-family: "Courier New", Courier, monospace;
+    font-weight: 700;
 }
 
 /* Layout */
 .content-container {
-  max-width: var(--max-content-width);
-  margin-left: auto;
-  margin-right: auto;
-  padding-left: 1rem;
-  padding-right: 1rem;
+    max-width: var(--max-content-width);
+    margin-left: auto;
+    margin-right: auto;
+    padding-left: 1rem;
+    padding-right: 1rem;
 }
 
 /* Typography - huge and bold */
-h1, h2, h3, h4, h5, h6 {
-  font-weight: 900;
-  text-transform: uppercase;
-  letter-spacing: -0.02em;
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: -0.02em;
 }
 
 /* Utility classes */
-.bg-primary { background-color: var(--bg-primary); }
-.bg-secondary { background-color: var(--bg-secondary); }
-.bg-tertiary { background-color: var(--bg-tertiary); }
-.bg-elevated { background-color: var(--bg-elevated); }
+.bg-primary {
+    background-color: var(--bg-primary);
+}
+.bg-secondary {
+    background-color: var(--bg-secondary);
+}
+.bg-tertiary {
+    background-color: var(--bg-tertiary);
+}
+.bg-elevated {
+    background-color: var(--bg-elevated);
+}
 
-.text-primary { color: var(--text-primary); }
-.text-secondary { color: var(--text-secondary); }
-.text-muted { color: var(--text-muted); }
-.text-highlight { color: var(--highlight); }
+.text-primary {
+    color: var(--text-primary);
+}
+.text-secondary {
+    color: var(--text-secondary);
+}
+.text-muted {
+    color: var(--text-muted);
+}
+.text-highlight {
+    color: var(--highlight);
+}
 
 /* Card with heading in border */
 .card-brutal {
-  background-color: var(--bg-primary);
-  border: 3px solid var(--accent-muted);
-  padding: 1.25rem;
-  position: relative;
+    background-color: var(--bg-primary);
+    border: 3px solid var(--accent-muted);
+    padding: 1.25rem;
+    position: relative;
 }
 
 .card-brutal .heading-breaker {
-  position: absolute;
-  top: -0.75rem;
-  left: 1rem;
-  background-color: var(--bg-primary);
-  padding: 0 0.5rem;
-  font-weight: 900;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  font-size: 0.75rem;
-  color: var(--text-primary);
+    position: absolute;
+    top: -0.75rem;
+    left: 1rem;
+    background-color: var(--bg-primary);
+    padding: 0 0.5rem;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-size: 0.75rem;
+    color: var(--text-primary);
 }
 
 .card-brutal .heading-breaker.orange {
-  color: var(--highlight);
+    color: var(--highlight);
 }
 
 .card-brutal-inset {
-  background-color: var(--bg-secondary);
-  border: 3px solid var(--accent-muted);
-  padding: 1.25rem;
-  position: relative;
+    background-color: var(--bg-secondary);
+    border: 3px solid var(--accent-muted);
+    padding: 1.25rem;
+    position: relative;
 }
 
 .card-brutal-inset .heading-breaker {
-  position: absolute;
-  top: -0.75rem;
-  left: 1rem;
-  background-color: var(--bg-secondary);
-  padding: 0 0.5rem;
-  font-weight: 900;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  font-size: 0.75rem;
-  color: var(--text-primary);
+    position: absolute;
+    top: -0.75rem;
+    left: 1rem;
+    background-color: var(--bg-secondary);
+    padding: 0 0.5rem;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-size: 0.75rem;
+    color: var(--text-primary);
 }
 
 .card-brutal-inset .heading-breaker.orange {
-  color: var(--highlight);
+    color: var(--highlight);
 }
 
 /* Card with thick accent bar */
 .card-bar {
-  background-color: var(--bg-secondary);
-  border-left: 6px solid var(--highlight);
-  padding: 1.25rem;
+    background-color: var(--bg-secondary);
+    border-left: 6px solid var(--highlight);
+    padding: 1.25rem;
 }
 
 /* Minimal button - just borders */
 .btn-brutal {
-  background-color: transparent;
-  color: var(--text-primary);
-  padding: 0.75rem 1.5rem;
-  font-weight: 900;
-  border: 3px solid var(--text-primary);
-  cursor: pointer;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  font-size: 0.8125rem;
-  transition: all 0.1s ease;
+    background-color: transparent;
+    color: var(--text-primary);
+    padding: 0.75rem 1.5rem;
+    font-weight: 900;
+    border: 3px solid var(--text-primary);
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-size: 0.8125rem;
+    transition: all 0.1s ease;
 }
 
 .btn-brutal:hover {
-  background-color: var(--text-primary);
-  color: var(--bg-primary);
+    background-color: var(--text-primary);
+    color: var(--bg-primary);
 }
 
 .btn-brutal:active {
-  transform: translate(2px, 2px);
+    transform: translate(2px, 2px);
 }
 
 /* Orange accent button */
 .btn-brutal-orange {
-  background-color: transparent;
-  color: var(--highlight);
-  padding: 0.75rem 1.5rem;
-  font-weight: 900;
-  border: 3px solid var(--highlight);
-  cursor: pointer;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  font-size: 0.8125rem;
-  transition: all 0.1s ease;
+    background-color: transparent;
+    color: var(--highlight);
+    padding: 0.75rem 1.5rem;
+    font-weight: 900;
+    border: 3px solid var(--highlight);
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-size: 0.8125rem;
+    transition: all 0.1s ease;
 }
 
 .btn-brutal-orange:hover {
-  background-color: var(--highlight);
-  color: var(--text-inverse);
+    background-color: var(--highlight);
+    color: var(--text-inverse);
 }
 
 .btn-brutal-orange:active {
-  transform: translate(2px, 2px);
+    transform: translate(2px, 2px);
 }
 
 /* Filled button */
 .btn-brutal-fill {
-  background-color: var(--text-primary);
-  color: var(--bg-primary);
-  padding: 0.75rem 1.5rem;
-  font-weight: 900;
-  border: 3px solid var(--text-primary);
-  cursor: pointer;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  font-size: 0.8125rem;
-  transition: all 0.1s ease;
+    background-color: var(--text-primary);
+    color: var(--bg-primary);
+    padding: 0.75rem 1.5rem;
+    font-weight: 900;
+    border: 3px solid var(--text-primary);
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-size: 0.8125rem;
+    transition: all 0.1s ease;
 }
 
 .btn-brutal-fill:hover {
-  background-color: var(--bg-primary);
-  color: var(--text-primary);
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
 }
 
 .btn-brutal-fill:active {
-  transform: translate(2px, 2px);
+    transform: translate(2px, 2px);
 }
 
 /* Minimal input */
 .input-brutal {
-  background-color: var(--bg-primary);
-  border: none;
-  border-bottom: 3px solid var(--accent-muted);
-  color: var(--text-primary);
-  padding: 0.75rem 0;
-  font-family: "Courier New", monospace;
-  font-size: 0.875rem;
-  font-weight: 700;
-  transition: all 0.2s ease;
+    background-color: var(--bg-primary);
+    border: none;
+    border-bottom: 3px solid var(--accent-muted);
+    color: var(--text-primary);
+    padding: 0.75rem 0;
+    font-family: "Courier New", monospace;
+    font-size: 0.875rem;
+    font-weight: 700;
+    transition: all 0.2s ease;
 }
 
 .input-brutal:focus {
-  outline: none;
-  border-bottom-color: var(--text-primary);
-  background-color: var(--bg-secondary);
+    outline: none;
+    border-bottom-color: var(--text-primary);
+    background-color: var(--bg-secondary);
 }
 
 .input-brutal::placeholder {
-  color: var(--text-muted);
+    color: var(--text-muted);
 }
 
 /* Boxed input variant */
 .input-brutal-box {
-  background-color: var(--bg-secondary);
-  border: 3px solid var(--accent-muted);
-  color: var(--text-primary);
-  padding: 0.75rem;
-  font-family: "Courier New", monospace;
-  font-size: 0.875rem;
-  font-weight: 700;
-  transition: all 0.1s ease;
+    background-color: var(--bg-secondary);
+    border: 3px solid var(--accent-muted);
+    color: var(--text-primary);
+    padding: 0.75rem;
+    font-family: "Courier New", monospace;
+    font-size: 0.875rem;
+    font-weight: 700;
+    transition: all 0.1s ease;
 }
 
 .input-brutal-box:focus {
-  outline: none;
-  border-color: var(--text-primary);
+    outline: none;
+    border-color: var(--text-primary);
 }
 
 /* Stat card - minimalist */
 .stat-brutal {
-  background-color: var(--bg-primary);
-  border: 3px solid var(--accent-muted);
-  padding: 1.25rem;
-  text-align: center;
-  transition: all 0.1s ease;
+    background-color: var(--bg-primary);
+    border: 3px solid var(--accent-muted);
+    padding: 1.25rem;
+    text-align: center;
+    transition: all 0.1s ease;
 }
 
 .stat-brutal:hover {
-  border-color: var(--text-primary);
+    border-color: var(--text-primary);
 }
 
 .stat-brutal .stat-value {
-  font-family: "Courier New", monospace;
-  font-size: 2.5rem;
-  font-weight: 900;
-  color: var(--text-primary);
-  line-height: 1;
-  margin-bottom: 0.75rem;
+    font-family: "Courier New", monospace;
+    font-size: 2.5rem;
+    font-weight: 900;
+    color: var(--text-primary);
+    line-height: 1;
+    margin-bottom: 0.75rem;
 }
 
 .stat-brutal .stat-value.orange {
-  color: var(--highlight);
+    color: var(--highlight);
 }
 
 .stat-brutal .stat-label {
-  font-size: 0.6875rem;
-  color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.15em;
-  font-weight: 900;
+    font-size: 0.6875rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    font-weight: 900;
 }
 
 /* Alert - stark and simple */
 .alert-brutal {
-  padding: 0.875rem 1.25rem;
-  border: 3px solid var(--text-primary);
-  background-color: var(--bg-secondary);
-  font-family: "Courier New", monospace;
-  font-size: 0.8125rem;
-  font-weight: 700;
+    padding: 0.875rem 1.25rem;
+    border: 3px solid var(--text-primary);
+    background-color: var(--bg-secondary);
+    font-family: "Courier New", monospace;
+    font-size: 0.8125rem;
+    font-weight: 700;
 }
 
 .alert-brutal::before {
-  content: "!";
-  display: inline-block;
-  width: 1.25rem;
-  height: 1.25rem;
-  line-height: 1.25rem;
-  text-align: center;
-  border: 2px solid currentColor;
-  margin-right: 0.75rem;
-  font-weight: 900;
+    content: "!";
+    display: inline-block;
+    width: 1.25rem;
+    height: 1.25rem;
+    line-height: 1.25rem;
+    text-align: center;
+    border: 2px solid currentColor;
+    margin-right: 0.75rem;
+    font-weight: 900;
 }
 
 .alert-brutal.orange {
-  border-color: var(--highlight);
-  color: var(--highlight);
+    border-color: var(--highlight);
+    color: var(--highlight);
+}
+
+.alert-brutal.green {
+    border-color: var(--color-success);
+    color: var(--color-success);
 }
 
 .alert-brutal.success::before {
-  content: "✓";
+    content: "✓";
 }
 
 .alert-brutal.error::before {
-  content: "✗";
+    content: "✗";
 }
 
 /* Badge - minimal box */
 .badge-brutal {
-  display: inline-flex;
-  align-items: center;
-  padding: 0.375rem 0.75rem;
-  font-size: 0.6875rem;
-  font-weight: 900;
-  border: 2px solid currentColor;
-  font-family: "Courier New", monospace;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  background-color: var(--bg-primary);
+    display: inline-flex;
+    align-items: center;
+    padding: 0.375rem 0.75rem;
+    font-size: 0.6875rem;
+    font-weight: 900;
+    border: 2px solid currentColor;
+    font-family: "Courier New", monospace;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    background-color: var(--bg-primary);
 }
 
 .badge-brutal.white {
-  color: var(--text-primary);
-  border-color: var(--text-primary);
+    color: var(--text-primary);
+    border-color: var(--text-primary);
 }
 
 .badge-brutal.orange {
-  color: var(--highlight);
-  border-color: var(--highlight);
+    color: var(--highlight);
+    border-color: var(--highlight);
 }
 
 .badge-brutal.grey {
-  color: var(--text-secondary);
-  border-color: var(--accent-muted);
+    color: var(--text-secondary);
+    border-color: var(--accent-muted);
 }
 
 .badge-brutal.filled {
-  background-color: var(--text-primary);
-  color: var(--bg-primary);
+    background-color: var(--text-primary);
+    color: var(--bg-primary);
 }
 
 .badge-brutal.filled.orange {
-  background-color: var(--highlight);
-  color: var(--text-inverse);
+    background-color: var(--highlight);
+    color: var(--text-inverse);
 }
 
 /* Link styles - underlined */
 a {
-  color: var(--text-primary);
-  text-decoration: none;
-  border-bottom: 2px solid var(--text-primary);
-  transition: all 0.1s ease;
-  font-weight: 700;
+    color: var(--text-primary);
+    text-decoration: none;
+    border-bottom: 2px solid var(--text-primary);
+    transition: all 0.1s ease;
+    font-weight: 700;
 }
 
 a:hover {
-  color: var(--highlight);
-  border-bottom-color: var(--highlight);
+    color: var(--highlight);
+    border-bottom-color: var(--highlight);
 }
 
 a.orange {
-  color: var(--highlight);
-  border-bottom-color: var(--highlight);
+    color: var(--highlight);
+    border-bottom-color: var(--highlight);
 }
 
 a.orange:hover {
-  color: var(--text-primary);
-  border-bottom-color: var(--text-primary);
+    color: var(--text-primary);
+    border-bottom-color: var(--text-primary);
 }
 
 /* Divider - thick line */
 .divider-brutal {
-  border: 0;
-  border-top: 3px solid var(--accent-muted);
-  margin: 1.5rem 0;
+    border: 0;
+    border-top: 3px solid var(--accent-muted);
+    margin: 1.5rem 0;
 }
 
 .divider-brutal.white {
-  border-top-color: var(--text-primary);
+    border-top-color: var(--text-primary);
 }
 
 .divider-brutal.orange {
-  border-top-color: var(--highlight);
+    border-top-color: var(--highlight);
 }
 
 /* Table-like data display */
 .data-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-family: "Courier New", monospace;
-  font-weight: 700;
+    width: 100%;
+    border-collapse: collapse;
+    font-family: "Courier New", monospace;
+    font-weight: 700;
 }
 
 .data-table th {
-  text-align: left;
-  padding: 0.875rem;
-  background-color: var(--text-primary);
-  color: var(--bg-primary);
-  border: 3px solid var(--text-primary);
-  text-transform: uppercase;
-  font-size: 0.6875rem;
-  letter-spacing: 0.08em;
-  font-weight: 900;
+    text-align: left;
+    padding: 0.875rem;
+    background-color: var(--text-primary);
+    color: var(--bg-primary);
+    border: 3px solid var(--text-primary);
+    text-transform: uppercase;
+    font-size: 0.6875rem;
+    letter-spacing: 0.08em;
+    font-weight: 900;
 }
 
 .data-table td {
-  padding: 0.875rem;
-  border: 3px solid var(--accent-muted);
-  background-color: var(--bg-secondary);
+    padding: 0.875rem;
+    border: 3px solid var(--accent-muted);
+    background-color: var(--bg-secondary);
 }
 
 .data-table tr:hover td {
-  border-color: var(--text-primary);
+    border-color: var(--text-primary);
 }
 
 /* Large numbers display */
 .number-display {
-  font-family: "Courier New", monospace;
-  font-size: 4rem;
-  font-weight: 900;
-  line-height: 1;
-  letter-spacing: -0.05em;
+    font-family: "Courier New", monospace;
+    font-size: 4rem;
+    font-weight: 900;
+    line-height: 1;
+    letter-spacing: -0.05em;
 }
 
 /* Label above content */
 .label-brutal {
-  font-size: 0.625rem;
-  text-transform: uppercase;
-  letter-spacing: 0.2em;
-  color: var(--text-secondary);
-  font-weight: 900;
-  margin-bottom: 0.5rem;
+    font-size: 0.625rem;
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
+    color: var(--text-secondary);
+    font-weight: 900;
+    margin-bottom: 0.5rem;
 }
 
 /* Progress bar - chunky */
 .progress-brutal {
-  width: 100%;
-  height: 1.5rem;
-  background-color: var(--bg-secondary);
-  border: 3px solid var(--accent-muted);
-  position: relative;
-  overflow: hidden;
+    width: 100%;
+    height: 1.5rem;
+    background-color: var(--bg-secondary);
+    border: 3px solid var(--accent-muted);
+    position: relative;
+    overflow: hidden;
 }
 
 .progress-brutal-bar {
-  height: 100%;
-  background-color: var(--text-primary);
-  transition: width 0.3s ease;
-  position: relative;
+    height: 100%;
+    background-color: var(--text-primary);
+    transition: width 0.3s ease;
+    position: relative;
 }
 
 .progress-brutal-bar.orange {
-  background-color: var(--highlight);
+    background-color: var(--highlight);
 }
 
 .progress-brutal-value {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  font-weight: 900;
-  font-family: "Courier New", monospace;
-  font-size: 0.75rem;
-  color: var(--bg-primary);
-  mix-blend-mode: difference;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-weight: 900;
+    font-family: "Courier New", monospace;
+    font-size: 0.75rem;
+    color: var(--bg-primary);
+    mix-blend-mode: difference;
 }
