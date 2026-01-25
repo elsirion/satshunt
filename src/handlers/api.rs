@@ -13,7 +13,7 @@ use axum::{
 use axum_extra::extract::cookie::PrivateCookieJar;
 use chrono::Utc;
 use hmac::{Hmac, Mac};
-use image::GenericImageView;
+use image::{DynamicImage, GenericImageView};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::Sha256;
@@ -930,6 +930,28 @@ pub async fn manual_refill(
     })))
 }
 
+/// Apply EXIF orientation to correctly rotate images from cameras/phones
+fn apply_exif_orientation(data: &[u8], img: DynamicImage) -> DynamicImage {
+    let orientation = (|| {
+        let mut cursor = std::io::Cursor::new(data);
+        let exif_reader = exif::Reader::new();
+        let exif = exif_reader.read_from_container(&mut cursor).ok()?;
+        let orientation = exif.get_field(exif::Tag::Orientation, exif::In::PRIMARY)?;
+        orientation.value.get_uint(0)
+    })();
+
+    match orientation {
+        Some(2) => img.fliph(),
+        Some(3) => img.rotate180(),
+        Some(4) => img.flipv(),
+        Some(5) => img.rotate90().fliph(),
+        Some(6) => img.rotate90(),
+        Some(7) => img.rotate270().fliph(),
+        Some(8) => img.rotate270(),
+        _ => img, // 1 or unknown = no rotation needed
+    }
+}
+
 /// Upload a photo to a location
 pub async fn upload_photo(
     auth: AuthUser,
@@ -994,6 +1016,9 @@ pub async fn upload_photo(
                 tracing::error!("Failed to decode image: {}", e);
                 StatusCode::BAD_REQUEST
             })?;
+
+            // Apply EXIF orientation to fix rotated images
+            let img = apply_exif_orientation(&data, img);
 
             // Resize if larger than 12 megapixels
             const MAX_PIXELS: u32 = 12_000_000;
