@@ -53,8 +53,8 @@ pub fn home(stats: &Stats) -> Markup {
 
             div class="grid md:grid-cols-3 gap-6 mt-8" {
                 (step("1", "FIND LOCATIONS", "Browse the map to find treasure locations near you. Each location has NFC stickers with sats waiting to be claimed."))
-                (step("2", "SCAN NFC TAG", "When you reach a location, use your Lightning wallet to scan the NFC sticker. It will offer you the available sats via LNURL-withdraw."))
-                (step("3", "CLAIM SATS", "Accept the withdrawal in your wallet and the sats are yours! Locations refill over time from the donation pool."))
+                (step("2", "SCAN NFC TAG", "When you reach a location, scan the NFC sticker with your phone to claim the available sats."))
+                (step("3", "CLAIM SATS", "The sats are added to your wallet instantly! Locations refill over time from the donation pool."))
             }
         }
 
@@ -67,9 +67,8 @@ pub fn home(stats: &Stats) -> Markup {
                     "Hide sats in interesting locations around the world using NFC stickers, and let others discover and claim them."
                 }
                 p class="font-bold" {
-                    "Each location contains an NFC tag with an LNURL-withdraw link. When scanned with a Lightning wallet, "
-                    "it allows the finder to instantly claim the available satoshis. Locations automatically refill from a "
-                    "community donation pool, keeping the game going."
+                    "Each location contains an NFC tag that lets finders instantly claim the available satoshis. "
+                    "Locations automatically refill from a community donation pool, keeping the game going."
                 }
                 p class="font-black text-highlight text-lg" {
                     "Get outside, explore new places, and stack sats!"
