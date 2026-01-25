@@ -12,12 +12,16 @@ use axum::{
 };
 use axum_extra::extract::cookie::PrivateCookieJar;
 use chrono::Utc;
+use hmac::{Hmac, Mac};
 use image::GenericImageView;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use sha2::Sha256;
 use std::{path::PathBuf, sync::Arc};
 use tokio::fs;
 use tokio::sync::mpsc;
+
+type HmacSha256 = Hmac<Sha256>;
 
 #[derive(Debug, Deserialize)]
 pub struct CreateLocationRequest {
@@ -36,6 +40,57 @@ pub struct AppState {
     pub donation_sender: mpsc::UnboundedSender<NewDonation>,
     /// Key for signing private cookies
     pub cookie_key: Key,
+    /// Secret for signing withdrawal tokens (derived from cookie_key)
+    pub withdraw_secret: Vec<u8>,
+}
+
+/// Create a signed withdrawal token for a user.
+/// Format: "{user_id}:{timestamp}:{signature}"
+/// The token is valid for 1 hour.
+pub fn create_withdraw_token(secret: &[u8], user_id: &str) -> String {
+    let timestamp = Utc::now().timestamp();
+    let message = format!("{}:{}", user_id, timestamp);
+
+    let mut mac = HmacSha256::new_from_slice(secret).expect("HMAC can take key of any size");
+    mac.update(message.as_bytes());
+    let signature = hex::encode(mac.finalize().into_bytes());
+
+    format!("{}:{}:{}", user_id, timestamp, signature)
+}
+
+/// Verify a withdrawal token and extract the user_id.
+/// Returns None if invalid or expired (> 1 hour old).
+pub fn verify_withdraw_token(secret: &[u8], token: &str) -> Option<String> {
+    let parts: Vec<&str> = token.split(':').collect();
+    if parts.len() != 3 {
+        tracing::warn!("Invalid withdraw token format");
+        return None;
+    }
+
+    let user_id = parts[0];
+    let timestamp: i64 = parts[1].parse().ok()?;
+    let provided_signature = parts[2];
+
+    // Check token age (1 hour max)
+    let now = Utc::now().timestamp();
+    let age_seconds = now - timestamp;
+    if !(0..=3600).contains(&age_seconds) {
+        tracing::warn!("Withdraw token expired (age: {} seconds)", age_seconds);
+        return None;
+    }
+
+    // Verify signature
+    let message = format!("{}:{}", user_id, timestamp);
+    let mut mac = HmacSha256::new_from_slice(secret).expect("HMAC can take key of any size");
+    mac.update(message.as_bytes());
+    let expected_signature = hex::encode(mac.finalize().into_bytes());
+
+    if expected_signature != provided_signature {
+        tracing::warn!("Invalid withdraw token signature");
+        return None;
+    }
+
+    Some(user_id.to_string())
 }
 
 pub async fn create_location(
@@ -155,7 +210,11 @@ pub async fn create_donation_invoice(
     // Store donation in database for resilient tracking
     state
         .db
-        .create_donation(invoice.clone(), amount_msats, payload.location_id.as_deref())
+        .create_donation(
+            invoice.clone(),
+            amount_msats,
+            payload.location_id.as_deref(),
+        )
         .await
         .map_err(|e| {
             tracing::error!("Failed to create donation: {}", e);
@@ -309,9 +368,7 @@ pub async fn wait_for_donation(
                             <p class="text-sm text-slate-400 mb-1">Split Among {} Locations</p>
                             <p class="text-4xl font-bold text-yellow-400">{} ⚡ each</p>
                         </div>"#,
-                        amount,
-                        num_locations,
-                        per_location
+                        amount, num_locations, per_location
                     )
                 };
 
@@ -737,9 +794,8 @@ pub async fn manual_refill(
         let slowdown_factor = calculate_slowdown_factor(location.current_msats, max_msats);
 
         // Calculate refill rate: pool * percentage * slowdown
-        let rate_msats =
-            (pool_balance_msats as f64 * POOL_PERCENTAGE_PER_MINUTE * slowdown_factor).round()
-                as i64;
+        let rate_msats = (pool_balance_msats as f64 * POOL_PERCENTAGE_PER_MINUTE * slowdown_factor)
+            .round() as i64;
 
         // Calculate refill amount
         let refill_msats = (minutes_since_activity * rate_msats)
@@ -2018,72 +2074,91 @@ pub async fn wallet_withdraw_invoice(
 // Wallet LNURL-withdraw Endpoints (LUD-03)
 // ============================================================================
 
+/// Query parameters for wallet LNURL-withdraw initial request
+#[derive(Debug, Deserialize)]
+pub struct WalletLnurlwParams {
+    /// Signed withdrawal token (format: "user_id:timestamp:signature")
+    pub token: String,
+}
+
 /// LNURL-withdraw initial request for wallet balance
 ///
-/// GET /api/wallet/lnurlw
+/// GET /api/wallet/lnurlw?token={signed_token}
 ///
 /// Returns LNURL-withdraw parameters for the user's wallet balance.
 /// This allows users to withdraw by scanning a QR code with their Lightning wallet.
+/// The token is signed with HMAC to authenticate the user without cookies.
 pub async fn wallet_lnurlw_request(
     State(state): State<Arc<AppState>>,
-    user: CookieUser,
-) -> impl IntoResponse {
-    tracing::info!("Wallet LNURL-withdraw request from user {}", user.user_id);
+    Query(params): Query<WalletLnurlwParams>,
+) -> Result<Json<LnurlWithdrawResponse>, (StatusCode, Json<LnurlCallbackResponse>)> {
+    tracing::info!("Wallet LNURL-withdraw request with token");
 
-    // Helper to build error response with cookie jar
-    let error_response = |jar: PrivateCookieJar, status: StatusCode, reason: &str| {
-        (jar, (status, Json(LnurlCallbackResponse::error(reason)))).into_response()
-    };
+    // Verify the signed token and extract user_id
+    let user_id =
+        verify_withdraw_token(&state.withdraw_secret, &params.token).ok_or_else(|| {
+            tracing::warn!("Invalid or expired withdraw token");
+            (
+                StatusCode::UNAUTHORIZED,
+                Json(LnurlCallbackResponse::error(
+                    "Invalid or expired withdrawal link. Please refresh and try again.",
+                )),
+            )
+        })?;
+
+    tracing::info!("Wallet LNURL-withdraw request from user {}", user_id);
 
     // Get user balance
-    let balance_msats = match state.db.get_user_balance(&user.user_id).await {
+    let balance_msats = match state.db.get_user_balance(&user_id).await {
         Ok(balance) => balance,
         Err(e) => {
             tracing::error!("Failed to get user balance: {}", e);
-            return error_response(
-                user.jar,
+            return Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Failed to get balance.",
-            );
+                Json(LnurlCallbackResponse::error("Failed to get balance.")),
+            ));
         }
     };
 
     // Check minimum withdrawal amount
     if balance_msats < 1000 {
-        return error_response(
-            user.jar,
+        return Err((
             StatusCode::BAD_REQUEST,
-            "Insufficient balance. You need at least 1 sat to withdraw.",
-        );
+            Json(LnurlCallbackResponse::error(
+                "Insufficient balance. You need at least 1 sat to withdraw.",
+            )),
+        ));
     }
 
     let balance_sats = balance_msats / 1000;
     let withdraw_msats = balance_sats * 1000; // Round down to whole sats
 
-    // Build callback URL
-    let callback = format!("{}/api/wallet/lnurlw/callback", state.base_url);
+    // Build callback URL - pass the token through for the callback to verify
+    let callback = format!(
+        "{}/api/wallet/lnurlw/callback?token={}",
+        state.base_url,
+        urlencoding::encode(&params.token)
+    );
 
-    // k1 is a unique identifier - we use user_id since each user can only have one pending withdrawal
-    let k1 = user.user_id.clone();
+    // k1 can be anything unique - we use user_id for logging purposes
+    let k1 = user_id.clone();
 
-    (
-        user.jar,
-        Json(LnurlWithdrawResponse {
-            tag: "withdrawRequest".to_string(),
-            callback,
-            k1,
-            default_description: format!("Withdraw {} sats from SatsHunt wallet", balance_sats),
-            min_withdrawable: withdraw_msats,
-            max_withdrawable: withdraw_msats,
-        }),
-    )
-        .into_response()
+    Ok(Json(LnurlWithdrawResponse {
+        tag: "withdrawRequest".to_string(),
+        callback,
+        k1,
+        default_description: format!("Withdraw {} sats from SatsHunt wallet", balance_sats),
+        min_withdrawable: withdraw_msats,
+        max_withdrawable: withdraw_msats,
+    }))
 }
 
 /// Query parameters for wallet LNURL-withdraw callback
 #[derive(Debug, Deserialize)]
 pub struct WalletLnurlCallbackParams {
-    /// k1 from initial request (user_id)
+    /// Signed withdrawal token (format: "user_id:timestamp:signature")
+    pub token: String,
+    /// k1 from initial request (for logging only)
     pub k1: String,
     /// BOLT11 invoice from wallet
     pub pr: String,
@@ -2091,16 +2166,28 @@ pub struct WalletLnurlCallbackParams {
 
 /// LNURL-withdraw callback for wallet balance
 ///
-/// GET /api/wallet/lnurlw/callback?k1={user_id}&pr={invoice}
+/// GET /api/wallet/lnurlw/callback?token={signed_token}&k1={user_id}&pr={invoice}
 ///
 /// Called by the user's Lightning wallet with the invoice to pay.
 pub async fn wallet_lnurlw_callback(
     State(state): State<Arc<AppState>>,
     Query(params): Query<WalletLnurlCallbackParams>,
 ) -> Result<Json<LnurlCallbackResponse>, (StatusCode, Json<LnurlCallbackResponse>)> {
-    tracing::info!("Wallet LNURL-withdraw callback for user {}", params.k1);
+    tracing::info!("Wallet LNURL-withdraw callback for k1 {}", params.k1);
 
-    let user_id = &params.k1;
+    // Verify the signed token and extract user_id
+    let user_id =
+        verify_withdraw_token(&state.withdraw_secret, &params.token).ok_or_else(|| {
+            tracing::warn!("Invalid or expired withdraw token in callback");
+            (
+                StatusCode::UNAUTHORIZED,
+                Json(LnurlCallbackResponse::error(
+                    "Invalid or expired withdrawal link. Please refresh and try again.",
+                )),
+            )
+        })?;
+
+    tracing::info!("Wallet LNURL-withdraw callback for user {}", user_id);
     let invoice = params.pr.trim();
 
     // Parse the invoice to get the amount
@@ -2125,7 +2212,7 @@ pub async fn wallet_lnurlw_callback(
     })? as i64;
 
     // Get user balance (already accounts for pending withdrawals)
-    let balance_msats = state.db.get_user_balance(user_id).await.map_err(|e| {
+    let balance_msats = state.db.get_user_balance(&user_id).await.map_err(|e| {
         tracing::error!("Failed to get user balance: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -2146,7 +2233,7 @@ pub async fn wallet_lnurlw_callback(
     // Create pending withdrawal to reserve the balance
     let withdrawal_id = state
         .db
-        .create_pending_withdrawal(user_id, invoice_msats, invoice)
+        .create_pending_withdrawal(&user_id, invoice_msats, invoice)
         .await
         .map_err(|e| {
             tracing::error!("Failed to create pending withdrawal: {}", e);

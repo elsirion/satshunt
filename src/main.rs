@@ -74,6 +74,9 @@ async fn main() -> Result<()> {
     let cookie_secret = db.get_or_create_cookie_secret().await?;
     let cookie_key = satshunt::auth::Key::from(&cookie_secret);
 
+    // Derive withdraw secret from cookie secret (use first 32 bytes for HMAC-SHA256)
+    let withdraw_secret = cookie_secret[..32].to_vec();
+
     // Create app state
     let app_state = Arc::new(AppState {
         db: (*db).clone(),
@@ -83,6 +86,7 @@ async fn main() -> Result<()> {
         max_sats_per_location: config.max_sats_per_location,
         donation_sender,
         cookie_key,
+        withdraw_secret,
     });
 
     // Start refill service

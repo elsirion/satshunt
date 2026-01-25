@@ -71,6 +71,10 @@ aes = "0.8"
 cbc = "0.1"
 cmac = "0.7"
 
+# HMAC for token signing
+hmac = "0.12"
+sha2 = "0.10"
+
 # HTTP client for LN address resolution
 reqwest = { version = "0.12", features = ["json"] }
 

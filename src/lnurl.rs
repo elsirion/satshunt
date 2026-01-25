@@ -4,7 +4,7 @@
 //! - Resolving Lightning Addresses (user@domain.com format) to BOLT11 invoices (LUD-16)
 //! - Encoding URLs to LNURL bech32 format (LUD-01)
 
-use bech32::{Bech32m, Hrp};
+use bech32::{Bech32, Hrp};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -216,11 +216,11 @@ pub async fn get_invoice_for_ln_address(
 
 /// Encode a URL as an LNURL bech32 string (LUD-01).
 ///
-/// LNURL encoding uses bech32 with the "lnurl" HRP (human-readable part).
+/// LNURL encoding uses bech32 (not bech32m) with the "lnurl" HRP (human-readable part).
 /// The resulting string is uppercase for better QR code compatibility.
 pub fn encode_lnurl(url: &str) -> Result<String, LnurlError> {
     let hrp = Hrp::parse("lnurl").map_err(|e| LnurlError::InvalidFormat(e.to_string()))?;
-    let encoded = bech32::encode::<Bech32m>(hrp, url.as_bytes())
+    let encoded = bech32::encode::<Bech32>(hrp, url.as_bytes())
         .map_err(|e| LnurlError::InvalidFormat(e.to_string()))?;
     Ok(encoded.to_uppercase())
 }
@@ -277,5 +277,25 @@ mod tests {
     fn test_parse_ln_address_trims_whitespace() {
         let result = parse_ln_address("  user@domain.com  ");
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_encode_lnurl() {
+        // Test encoding a URL to LNURL format
+        let url = "https://service.com/api/lnurl";
+        let result = encode_lnurl(url);
+        assert!(result.is_ok());
+        let lnurl = result.unwrap();
+
+        // LNURL should start with "LNURL1" (uppercase)
+        assert!(lnurl.starts_with("LNURL1"));
+
+        // Verify it can be decoded back using standard bech32 (not bech32m)
+        let hrp = Hrp::parse("lnurl").unwrap();
+        let (decoded_hrp, decoded_data) =
+            bech32::decode(&lnurl.to_lowercase()).expect("should decode with bech32");
+        assert_eq!(decoded_hrp, hrp);
+        let decoded_url = String::from_utf8(decoded_data).expect("should be valid utf8");
+        assert_eq!(decoded_url, url);
     }
 }

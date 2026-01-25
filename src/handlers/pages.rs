@@ -3,7 +3,7 @@ use crate::{
         hash_password, remove_user_cookie, set_user_cookie, verify_user_password, CookieUser,
         LoginRequest, RegisterRequest, UserKind,
     },
-    handlers::api::AppState,
+    handlers::api::{create_withdraw_token, AppState},
     models::AuthMethod,
     ntag424, templates,
 };
@@ -200,7 +200,11 @@ pub async fn donate_page(
     })?;
 
     let username = get_navbar_username(&user.kind);
-    let content = templates::donate(total_pool_msats / 1000, locations.len(), &received_donations);
+    let content = templates::donate(
+        total_pool_msats / 1000,
+        locations.len(),
+        &received_donations,
+    );
     let page = templates::base_with_user("Donate", content, username.as_deref());
 
     Ok(Html(page.into_string()))
@@ -592,7 +596,13 @@ pub async fn wallet_page(
 
     // Generate LNURL-withdraw string if user has balance
     let lnurlw_string = if balance_sats > 0 {
-        let lnurlw_url = format!("{}/api/wallet/lnurlw", state.base_url);
+        // Create a signed token for authentication (valid for 1 hour)
+        let token = create_withdraw_token(&state.withdraw_secret, &user.user_id);
+        let lnurlw_url = format!(
+            "{}/api/wallet/lnurlw?token={}",
+            state.base_url,
+            urlencoding::encode(&token)
+        );
         crate::lnurl::encode_lnurl(&lnurlw_url).ok()
     } else {
         None
