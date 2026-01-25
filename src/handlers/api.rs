@@ -1855,7 +1855,7 @@ pub async fn wallet_withdraw(
     };
 
     // Calculate withdrawable amount after fees
-    let (max_withdraw_msats, _fee_msats) = calculate_withdrawal_fees(balance_msats);
+    let (max_withdraw_msats, fee_msats) = calculate_withdrawal_fees(balance_msats);
 
     // Check minimum withdrawal amount (need enough to cover fees + at least 1 sat)
     if max_withdraw_msats < 1000 {
@@ -1903,10 +1903,10 @@ pub async fn wallet_withdraw(
         }
     };
 
-    // Create pending withdrawal to reserve the balance
+    // Create pending withdrawal to reserve the balance (including fees)
     let withdrawal_id = match state
         .db
-        .create_pending_withdrawal(&user.user_id, withdraw_msats, &invoice)
+        .create_pending_withdrawal(&user.user_id, withdraw_msats, fee_msats, &invoice)
         .await
     {
         Ok(Some(id)) => id,
@@ -2047,14 +2047,15 @@ pub async fn wallet_withdraw_invoice(
     };
 
     // Check if user has enough balance for the invoice amount + fees
-    if let Err(msg) = check_invoice_with_fees(invoice_msats, balance_msats) {
-        return error_response(user.jar, StatusCode::BAD_REQUEST, &msg);
-    }
+    let fee_msats = match check_invoice_with_fees(invoice_msats, balance_msats) {
+        Ok(fee) => fee,
+        Err(msg) => return error_response(user.jar, StatusCode::BAD_REQUEST, &msg),
+    };
 
-    // Create pending withdrawal to reserve the balance
+    // Create pending withdrawal to reserve the balance (including fees)
     let withdrawal_id = match state
         .db
-        .create_pending_withdrawal(&user.user_id, invoice_msats, invoice_str)
+        .create_pending_withdrawal(&user.user_id, invoice_msats, fee_msats, invoice_str)
         .await
     {
         Ok(Some(id)) => id,
@@ -2273,17 +2274,17 @@ pub async fn wallet_lnurlw_callback(
     })?;
 
     // Check if user has enough balance for invoice + fees
-    if let Err(msg) = check_invoice_with_fees(invoice_msats, balance_msats) {
-        return Err((
+    let fee_msats = check_invoice_with_fees(invoice_msats, balance_msats).map_err(|msg| {
+        (
             StatusCode::BAD_REQUEST,
             Json(LnurlCallbackResponse::error(&msg)),
-        ));
-    }
+        )
+    })?;
 
-    // Create pending withdrawal to reserve the balance
+    // Create pending withdrawal to reserve the balance (including fees)
     let withdrawal_id = state
         .db
-        .create_pending_withdrawal(&user_id, invoice_msats, invoice)
+        .create_pending_withdrawal(&user_id, invoice_msats, fee_msats, invoice)
         .await
         .map_err(|e| {
             tracing::error!("Failed to create pending withdrawal: {}", e);

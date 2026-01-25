@@ -377,7 +377,6 @@ impl Database {
         .map_err(Into::into)
     }
 
-
     /// Get the balance of a location's donation pool
     /// (sum of received location donations minus debits)
     pub async fn get_location_donation_pool_balance(&self, location_id: &str) -> Result<i64> {
@@ -525,11 +524,10 @@ impl Database {
         .fetch_one(&self.pool)
         .await?;
 
-        let total_debits: (i64,) = sqlx::query_as(
-            "SELECT COALESCE(SUM(amount_msats), 0) FROM location_pool_debits",
-        )
-        .fetch_one(&self.pool)
-        .await?;
+        let total_debits: (i64,) =
+            sqlx::query_as("SELECT COALESCE(SUM(amount_msats), 0) FROM location_pool_debits")
+                .fetch_one(&self.pool)
+                .await?;
 
         let total_pool_msats = total_donations.0 - total_debits.0;
 
@@ -739,7 +737,6 @@ impl Database {
         .await
         .map_err(Into::into)
     }
-
 
     // ========================================================================
     // Anonymous User and Custodial Wallet Operations
@@ -967,13 +964,16 @@ impl Database {
     /// Create a pending withdrawal, reserving the balance.
     ///
     /// This creates a pending withdrawal record that reduces the user's available balance.
+    /// The `fee_msats` parameter specifies the fees to charge on top of the invoice amount.
     /// Returns the pending withdrawal ID if successful, or None if insufficient balance.
     pub async fn create_pending_withdrawal(
         &self,
         user_id: &str,
         amount_msats: i64,
+        fee_msats: i64,
         invoice: &str,
     ) -> Result<Option<String>> {
+        let total_msats = amount_msats + fee_msats;
         let mut tx = self.pool.begin().await?;
 
         // Get current balance from transactions
@@ -1000,21 +1000,21 @@ impl Database {
 
         let available_balance = tx_balance.unwrap_or(0) - pending.unwrap_or(0);
 
-        // Check sufficient balance
-        if available_balance < amount_msats {
+        // Check sufficient balance for amount + fees
+        if available_balance < total_msats {
             return Ok(None);
         }
 
         let now = Utc::now();
         let id = Uuid::new_v4().to_string();
 
-        // Create pending withdrawal
+        // Create pending withdrawal (reserves amount + fees)
         sqlx::query(
             "INSERT INTO pending_withdrawals (id, user_id, msats, invoice, status, created_at) VALUES (?, ?, ?, ?, ?, ?)"
         )
         .bind(&id)
         .bind(user_id)
-        .bind(amount_msats)
+        .bind(total_msats)
         .bind(invoice)
         .bind(WithdrawalStatus::Pending.as_str())
         .bind(now)
