@@ -3,12 +3,15 @@ use crate::{
     db::Database,
     donation::NewDonation,
     lightning::{Lightning, LightningService},
-    lnurl, ntag424,
+    lnurl,
+    models::UserRole,
+    ntag424,
 };
 use axum::{
     extract::{Multipart, Path, Query, State},
     http::StatusCode,
     response::{IntoResponse, Json},
+    Form,
 };
 use axum_extra::extract::cookie::PrivateCookieJar;
 use chrono::Utc;
@@ -131,6 +134,10 @@ pub async fn create_location(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<CreateLocationRequest>,
 ) -> Result<impl IntoResponse, StatusCode> {
+    // Require Creator role to create locations
+    auth.ensure_role(UserRole::Creator)
+        .map_err(|_| StatusCode::FORBIDDEN)?;
+
     tracing::info!(
         "Creating location: {} at ({}, {}) with max {} sats",
         payload.name,
@@ -2358,4 +2365,66 @@ pub async fn wallet_lnurlw_callback(
     );
 
     Ok(Json(LnurlCallbackResponse::ok()))
+}
+
+// ============================================================================
+// Admin Endpoints
+// ============================================================================
+
+/// Request body for updating user role
+#[derive(Debug, Deserialize)]
+pub struct UpdateUserRoleRequest {
+    pub role: String,
+}
+
+/// Update a user's role (admin only)
+///
+/// POST /api/admin/users/{user_id}/role
+/// Body: { "role": "user" | "creator" | "admin" }
+pub async fn update_user_role(
+    State(state): State<Arc<AppState>>,
+    auth: RequireRegistered,
+    Path(user_id): Path<String>,
+    Form(payload): Form<UpdateUserRoleRequest>,
+) -> Result<StatusCode, StatusCode> {
+    // Require admin role
+    auth.ensure_role(UserRole::Admin)
+        .map_err(|_| StatusCode::FORBIDDEN)?;
+
+    tracing::info!(
+        "Admin {} updating role for user {} to {}",
+        auth.user_id,
+        user_id,
+        payload.role
+    );
+
+    // Parse the role
+    let new_role: UserRole = payload.role.parse().map_err(|_| {
+        tracing::warn!("Invalid role: {}", payload.role);
+        StatusCode::BAD_REQUEST
+    })?;
+
+    // Update the user's role
+    let result = state
+        .db
+        .update_user_role(&user_id, new_role)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to update user role: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    if result.rows_affected() == 0 {
+        tracing::warn!("User not found: {}", user_id);
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    tracing::info!(
+        "Admin {} updated user {} role to {}",
+        auth.user_id,
+        user_id,
+        new_role
+    );
+
+    Ok(StatusCode::OK)
 }

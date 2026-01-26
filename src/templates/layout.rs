@@ -1,10 +1,19 @@
+use crate::models::UserRole;
 use maud::{html, Markup, DOCTYPE};
 
 pub fn base(title: &str, content: Markup) -> Markup {
-    base_with_user(title, content, None)
+    base_with_user(title, content, None, UserRole::User)
 }
 
-pub fn base_with_user(title: &str, content: Markup, username: Option<&str>) -> Markup {
+pub fn base_with_user(
+    title: &str,
+    content: Markup,
+    username: Option<&str>,
+    role: UserRole,
+) -> Markup {
+    let can_create_locations = role.has_at_least(UserRole::Creator);
+    let is_admin = role == UserRole::Admin;
+
     html! {
         (DOCTYPE)
         html lang="en" class="dark" {
@@ -40,7 +49,7 @@ pub fn base_with_user(title: &str, content: Markup, username: Option<&str>) -> M
                 script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js" {}
             }
             body {
-                (navbar(username))
+                (navbar(username, can_create_locations, is_admin))
                 main class="content-container py-8" {
                     (content)
                 }
@@ -98,7 +107,7 @@ pub fn base_with_user(title: &str, content: Markup, username: Option<&str>) -> M
     }
 }
 
-fn navbar(username: Option<&str>) -> Markup {
+fn navbar(username: Option<&str>, can_create_locations: bool, is_admin: bool) -> Markup {
     html! {
         nav class="bg-secondary" style="border-bottom: 3px solid var(--accent-border);" {
             div class="content-container py-4" {
@@ -157,7 +166,7 @@ fn navbar(username: Option<&str>) -> Markup {
                                         i class="fa-solid fa-wallet w-4" {}
                                         "WALLET"
                                     }
-                                    @if username.is_some() {
+                                    @if can_create_locations {
                                         a href="/locations" class="flex items-center gap-2 px-4 py-2 text-primary text-sm font-bold hover:bg-elevated hover:text-highlight" style="border-bottom: none;" {
                                             i class="fa-solid fa-location-dot w-4" {}
                                             "MY LOCATIONS"
@@ -165,6 +174,12 @@ fn navbar(username: Option<&str>) -> Markup {
                                         a href="/locations/new" class="flex items-center gap-2 px-4 py-2 text-primary text-sm font-bold hover:bg-elevated hover:text-highlight" style="border-bottom: none;" {
                                             i class="fa-solid fa-plus w-4" {}
                                             "ADD LOCATION"
+                                        }
+                                    }
+                                    @if is_admin {
+                                        a href="/admin/users" class="flex items-center gap-2 px-4 py-2 text-highlight text-sm font-bold hover:bg-elevated orange" style="border-bottom: none;" {
+                                            i class="fa-solid fa-users-gear w-4" {}
+                                            "MANAGE USERS"
                                         }
                                     }
                                 }
@@ -248,7 +263,7 @@ fn navbar(username: Option<&str>) -> Markup {
                                 i class="fa-solid fa-wallet w-5" {}
                                 "WALLET"
                             }
-                            @if username.is_some() {
+                            @if can_create_locations {
                                 a href="/locations" class="flex items-center gap-2 py-2 px-3 text-primary font-bold hover:text-highlight hover:bg-tertiary" style="border-bottom: none;" {
                                     i class="fa-solid fa-location-dot w-5" {}
                                     "MY LOCATIONS"
@@ -256,6 +271,12 @@ fn navbar(username: Option<&str>) -> Markup {
                                 a href="/locations/new" class="flex items-center gap-2 py-2 px-3 text-primary font-bold hover:text-highlight hover:bg-tertiary" style="border-bottom: none;" {
                                     i class="fa-solid fa-plus w-5" {}
                                     "ADD LOCATION"
+                                }
+                            }
+                            @if is_admin {
+                                a href="/admin/users" class="flex items-center gap-2 py-2 px-3 text-highlight font-bold hover:bg-tertiary orange" style="border-bottom: none;" {
+                                    i class="fa-solid fa-users-gear w-5" {}
+                                    "MANAGE USERS"
                                 }
                             }
                         }

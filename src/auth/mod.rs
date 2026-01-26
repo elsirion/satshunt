@@ -1,5 +1,5 @@
 use crate::handlers::api::AppState;
-use crate::models::{AuthMethod, User};
+use crate::models::{AuthMethod, User, UserRole};
 use ::time::Duration;
 use argon2::{
     password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
@@ -35,15 +35,15 @@ pub enum UserKind {
     /// Anonymous user with no database entry yet (brand new visitor)
     AnonNew,
     /// Anonymous user with a database entry (has collected sats before)
-    AnonExisting,
+    AnonExisting { role: UserRole },
     /// Registered user with username
-    Registered { username: String },
+    Registered { username: String, role: UserRole },
 }
 
 impl UserKind {
     /// Check if this is an anonymous user (new or existing)
     pub fn is_anonymous(&self) -> bool {
-        matches!(self, UserKind::AnonNew | UserKind::AnonExisting)
+        matches!(self, UserKind::AnonNew | UserKind::AnonExisting { .. })
     }
 
     /// Check if this is a registered user
@@ -54,8 +54,16 @@ impl UserKind {
     /// Get the display name for this user
     pub fn display_name(&self, user_id: &str) -> String {
         match self {
-            UserKind::Registered { username } => username.clone(),
+            UserKind::Registered { username, .. } => username.clone(),
             _ => format!("anon_{}", &user_id[..8.min(user_id.len())]),
+        }
+    }
+
+    /// Get the user's role
+    pub fn role(&self) -> UserRole {
+        match self {
+            UserKind::AnonNew => UserRole::User,
+            UserKind::AnonExisting { role } | UserKind::Registered { role, .. } => *role,
         }
     }
 }
@@ -92,15 +100,48 @@ impl CookieUser {
         self.kind.is_registered()
     }
 
+    /// Get the user's role
+    pub fn role(&self) -> UserRole {
+        self.kind.role()
+    }
+
+    /// Check if the user has at least the required role level
+    pub fn has_role(&self, required: UserRole) -> bool {
+        self.role().has_at_least(required)
+    }
+
+    /// Ensure the user has at least the required role, returning a 403 Forbidden if not.
+    #[allow(clippy::result_large_err)]
+    pub fn ensure_role(&self, required: UserRole) -> Result<(), Response> {
+        if self.has_role(required) {
+            Ok(())
+        } else {
+            Err((
+                axum::http::StatusCode::FORBIDDEN,
+                "Insufficient permissions",
+            )
+                .into_response())
+        }
+    }
+
     /// Ensure the user is registered, returning a redirect to login if not.
     ///
     /// Returns the username if registered, or a redirect response if not.
     #[allow(clippy::result_large_err)] // Response is idiomatic for axum error returns
     pub fn ensure_registered(&self) -> Result<&str, Response> {
         match &self.kind {
-            UserKind::Registered { username } => Ok(username.as_str()),
+            UserKind::Registered { username, .. } => Ok(username.as_str()),
             _ => Err(Redirect::to("/login").into_response()),
         }
+    }
+
+    /// Ensure the user is registered AND has at least the required role.
+    /// Returns the username if successful, or a redirect/403 response if not.
+    #[allow(clippy::result_large_err)]
+    pub fn ensure_registered_with_role(&self, required: UserRole) -> Result<&str, Response> {
+        let username = self.ensure_registered()?;
+        self.ensure_role(required)?;
+        Ok(username)
     }
 
     /// Build a cookie for the given user ID
@@ -146,10 +187,11 @@ impl FromRequestParts<Arc<AppState>> for CookieUser {
         let kind = match state.db.get_user_by_id(&user_id).await {
             Ok(Some(user)) => {
                 if user.is_anonymous() {
-                    UserKind::AnonExisting
+                    UserKind::AnonExisting { role: user.role }
                 } else {
                     UserKind::Registered {
                         username: user.display_name(),
+                        role: user.role,
                     }
                 }
             }
@@ -180,7 +222,29 @@ impl FromRequestParts<Arc<AppState>> for CookieUser {
 pub struct RequireRegistered {
     pub user_id: String,
     pub username: String,
+    pub role: UserRole,
     pub jar: PrivateCookieJar,
+}
+
+impl RequireRegistered {
+    /// Check if the user has at least the required role level
+    pub fn has_role(&self, required: UserRole) -> bool {
+        self.role.has_at_least(required)
+    }
+
+    /// Ensure the user has at least the required role, returning a 403 Forbidden if not.
+    #[allow(clippy::result_large_err)]
+    pub fn ensure_role(&self, required: UserRole) -> Result<(), Response> {
+        if self.has_role(required) {
+            Ok(())
+        } else {
+            Err((
+                axum::http::StatusCode::FORBIDDEN,
+                "Insufficient permissions",
+            )
+                .into_response())
+        }
+    }
 }
 
 #[async_trait]
@@ -194,9 +258,10 @@ impl FromRequestParts<Arc<AppState>> for RequireRegistered {
         let cookie_user = CookieUser::from_request_parts(parts, state).await?;
 
         match cookie_user.kind {
-            UserKind::Registered { username } => Ok(RequireRegistered {
+            UserKind::Registered { username, role } => Ok(RequireRegistered {
                 user_id: cookie_user.user_id,
                 username,
+                role,
                 jar: cookie_user.jar,
             }),
             _ => {

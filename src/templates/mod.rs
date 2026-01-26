@@ -1,3 +1,4 @@
+pub mod admin_users;
 pub mod collect;
 pub mod components;
 pub mod donate;
@@ -12,6 +13,7 @@ pub mod register;
 pub mod wallet;
 pub mod withdraw;
 
+pub use admin_users::admin_users;
 pub use collect::{collect, CollectParams};
 pub use donate::donate;
 pub use home::home;

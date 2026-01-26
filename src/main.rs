@@ -132,6 +132,8 @@ async fn main() -> Result<()> {
         )
         .route("/logout", post(handlers::logout))
         .route("/locations", get(auth(handlers::profile_page)))
+        // Admin routes
+        .route("/admin/users", get(auth(handlers::admin_users_page)))
         // API routes
         .route("/api/locations", post(handlers::create_location))
         .route(
@@ -184,6 +186,11 @@ async fn main() -> Result<()> {
         .route(
             "/api/locations/:location_id",
             delete(handlers::delete_location),
+        )
+        // Admin API endpoints
+        .route(
+            "/api/admin/users/:user_id/role",
+            post(handlers::update_user_role),
         )
         // Static files
         .nest_service("/uploads", ServeDir::new(&uploads_dir))

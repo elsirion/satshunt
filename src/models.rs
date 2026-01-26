@@ -2,6 +2,62 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
+/// User roles for access control
+/// Roles are hierarchical: Admin > Creator > User
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum UserRole {
+    /// Basic user - can collect sats and use wallet
+    #[default]
+    User,
+    /// Creator - can create and manage locations
+    Creator,
+    /// Admin - full access, can manage users and roles
+    Admin,
+}
+
+impl UserRole {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::User => "user",
+            Self::Creator => "creator",
+            Self::Admin => "admin",
+        }
+    }
+
+    /// Check if this role has at least the given level
+    pub fn has_at_least(&self, required: UserRole) -> bool {
+        *self >= required
+    }
+}
+
+impl std::fmt::Display for UserRole {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+impl std::str::FromStr for UserRole {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "user" => Ok(Self::User),
+            "creator" => Ok(Self::Creator),
+            "admin" => Ok(Self::Admin),
+            _ => Err(anyhow::anyhow!("Invalid user role: {}", s)),
+        }
+    }
+}
+
+impl TryFrom<String> for UserRole {
+    type Error = anyhow::Error;
+
+    fn try_from(s: String) -> Result<Self, Self::Error> {
+        s.parse()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AuthMethod {
@@ -77,6 +133,9 @@ pub struct User {
     pub auth_data: String,
     pub created_at: DateTime<Utc>,
     pub last_login_at: Option<DateTime<Utc>>,
+    /// User role for access control
+    #[sqlx(try_from = "String")]
+    pub role: UserRole,
 }
 
 impl User {
@@ -94,6 +153,21 @@ impl User {
         self.username
             .clone()
             .unwrap_or_else(|| format!("anon_{}", &self.id[..8]))
+    }
+
+    /// Check if the user has at least the given role level
+    pub fn has_role(&self, required: UserRole) -> bool {
+        self.role.has_at_least(required)
+    }
+
+    /// Check if the user is an admin
+    pub fn is_admin(&self) -> bool {
+        self.role == UserRole::Admin
+    }
+
+    /// Check if the user is a creator or higher
+    pub fn is_creator(&self) -> bool {
+        self.role.has_at_least(UserRole::Creator)
     }
 }
 
@@ -668,6 +742,7 @@ mod tests {
             auth_data: "{}".to_string(),
             created_at: now,
             last_login_at: None,
+            role: UserRole::User,
         };
         assert_eq!(registered_user.display_name(), "testuser");
         assert!(!registered_user.is_anonymous());
@@ -681,9 +756,56 @@ mod tests {
             auth_data: "{}".to_string(),
             created_at: now,
             last_login_at: None,
+            role: UserRole::User,
         };
         assert_eq!(anon_user.display_name(), "anon_550e8400");
         assert!(anon_user.is_anonymous());
+    }
+
+    #[test]
+    fn test_user_roles() {
+        // Test role hierarchy
+        assert!(UserRole::Admin.has_at_least(UserRole::Admin));
+        assert!(UserRole::Admin.has_at_least(UserRole::Creator));
+        assert!(UserRole::Admin.has_at_least(UserRole::User));
+
+        assert!(!UserRole::Creator.has_at_least(UserRole::Admin));
+        assert!(UserRole::Creator.has_at_least(UserRole::Creator));
+        assert!(UserRole::Creator.has_at_least(UserRole::User));
+
+        assert!(!UserRole::User.has_at_least(UserRole::Admin));
+        assert!(!UserRole::User.has_at_least(UserRole::Creator));
+        assert!(UserRole::User.has_at_least(UserRole::User));
+
+        // Test user methods
+        let now = Utc::now();
+        let admin_user = User {
+            id: "admin-id".to_string(),
+            username: Some("admin".to_string()),
+            email: None,
+            auth_method: "password".to_string(),
+            auth_data: "{}".to_string(),
+            created_at: now,
+            last_login_at: None,
+            role: UserRole::Admin,
+        };
+        assert!(admin_user.is_admin());
+        assert!(admin_user.is_creator());
+        assert!(admin_user.has_role(UserRole::User));
+
+        let creator_user = User {
+            id: "creator-id".to_string(),
+            username: Some("creator".to_string()),
+            email: None,
+            auth_method: "password".to_string(),
+            auth_data: "{}".to_string(),
+            created_at: now,
+            last_login_at: None,
+            role: UserRole::Creator,
+        };
+        assert!(!creator_user.is_admin());
+        assert!(creator_user.is_creator());
+        assert!(creator_user.has_role(UserRole::User));
     }
 
     #[test]

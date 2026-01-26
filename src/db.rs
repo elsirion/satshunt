@@ -1,6 +1,6 @@
 use crate::models::{
     AuthMethod, Donation, Location, LocationPoolDebit, NfcCard, Photo, Refill, Scan, Stats, User,
-    UserTransaction, WithdrawalStatus,
+    UserRole, UserTransaction, WithdrawalStatus,
 };
 use anyhow::Result;
 use chrono::Utc;
@@ -49,8 +49,8 @@ impl Database {
 
         sqlx::query_as::<_, User>(
             r#"
-            INSERT INTO users (id, username, email, auth_method, auth_data, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO users (id, username, email, auth_method, auth_data, created_at, role)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             RETURNING *
             "#,
         )
@@ -60,9 +60,32 @@ impl Database {
         .bind(method_type)
         .bind(&method_data)
         .bind(now)
+        .bind(UserRole::User.as_str())
         .fetch_one(&self.pool)
         .await
         .map_err(Into::into)
+    }
+
+    /// Update a user's role (admin only operation)
+    pub async fn update_user_role(
+        &self,
+        user_id: &str,
+        role: UserRole,
+    ) -> Result<SqliteQueryResult> {
+        sqlx::query("UPDATE users SET role = ? WHERE id = ?")
+            .bind(role.as_str())
+            .bind(user_id)
+            .execute(&self.pool)
+            .await
+            .map_err(Into::into)
+    }
+
+    /// List all users (admin only operation)
+    pub async fn list_users(&self) -> Result<Vec<User>> {
+        sqlx::query_as::<_, User>("SELECT * FROM users ORDER BY created_at DESC")
+            .fetch_all(&self.pool)
+            .await
+            .map_err(Into::into)
     }
 
     pub async fn get_user_by_username(&self, username: &str) -> Result<Option<User>> {
@@ -751,8 +774,8 @@ impl Database {
 
         sqlx::query_as::<_, User>(
             r#"
-            INSERT INTO users (id, username, email, auth_method, auth_data, created_at)
-            VALUES (?, NULL, NULL, ?, ?, ?)
+            INSERT INTO users (id, username, email, auth_method, auth_data, created_at, role)
+            VALUES (?, NULL, NULL, ?, ?, ?, ?)
             RETURNING *
             "#,
         )
@@ -760,6 +783,7 @@ impl Database {
         .bind(method_type)
         .bind(&method_data)
         .bind(now)
+        .bind(UserRole::User.as_str())
         .fetch_one(&self.pool)
         .await
         .map_err(Into::into)
@@ -895,7 +919,7 @@ impl Database {
 
         if !user_exists {
             sqlx::query(
-                "INSERT INTO users (id, username, email, auth_method, auth_data, created_at) VALUES (?, NULL, NULL, 'anonymous', '{}', ?)"
+                "INSERT INTO users (id, username, email, auth_method, auth_data, created_at, role) VALUES (?, NULL, NULL, 'anonymous', '{}', ?, 'user')"
             )
             .bind(user_id)
             .bind(now)

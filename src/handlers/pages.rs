@@ -4,7 +4,7 @@ use crate::{
         LoginRequest, RegisterRequest, UserKind,
     },
     handlers::api::{create_withdraw_token, AppState},
-    models::AuthMethod,
+    models::{AuthMethod, UserRole},
     ntag424, templates,
 };
 use axum::{
@@ -42,7 +42,7 @@ pub struct WithdrawQuery {
 /// Helper to get username for navbar from UserKind
 fn get_navbar_username(kind: &UserKind) -> Option<String> {
     match kind {
-        UserKind::Registered { username } => Some(username.clone()),
+        UserKind::Registered { username, .. } => Some(username.clone()),
         _ => None,
     }
 }
@@ -58,7 +58,7 @@ pub async fn home_page(
 
     let username = get_navbar_username(&user.kind);
     let content = templates::home(&stats);
-    let page = templates::base_with_user("Home", content, username.as_deref());
+    let page = templates::base_with_user("Home", content, username.as_deref(), user.role());
 
     Ok(Html(page.into_string()))
 }
@@ -74,15 +74,15 @@ pub async fn map_page(
 
     let username = get_navbar_username(&user.kind);
     let content = templates::map(&locations, state.max_sats_per_location);
-    let page = templates::base_with_user("Map", content, username.as_deref());
+    let page = templates::base_with_user("Map", content, username.as_deref(), user.role());
 
     Ok(Html(page.into_string()))
 }
 
 pub async fn new_location_page(user: CookieUser) -> Result<Html<String>, Response> {
-    let username = user.ensure_registered()?;
+    let username = user.ensure_registered_with_role(UserRole::Creator)?;
     let content = templates::new_location();
-    let page = templates::base_with_user("Add Location", content, Some(username));
+    let page = templates::base_with_user("Add Location", content, Some(username), user.role());
     Ok(Html(page.into_string()))
 }
 
@@ -146,7 +146,7 @@ pub async fn location_detail_page(
         donation_pool_msats / 1000,
         &donations,
     );
-    let page = templates::base_with_user(&location.name, content, username.as_deref());
+    let page = templates::base_with_user(&location.name, content, username.as_deref(), user.role());
 
     Ok(Html(page.into_string()))
 }
@@ -194,10 +194,14 @@ pub async fn donate_page(
             .unwrap_or(0);
     }
 
-    let received_donations = state.db.list_all_received_donations(50).await.map_err(|e| {
-        tracing::error!("Failed to get received donations: {}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let received_donations = state
+        .db
+        .list_all_received_donations(50)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to get received donations: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     let username = get_navbar_username(&user.kind);
     let content = templates::donate(
@@ -205,7 +209,7 @@ pub async fn donate_page(
         locations.len(),
         &received_donations,
     );
-    let page = templates::base_with_user("Donate", content, username.as_deref());
+    let page = templates::base_with_user("Donate", content, username.as_deref(), user.role());
 
     Ok(Html(page.into_string()))
 }
@@ -412,7 +416,7 @@ pub async fn profile_page(
 
     let content = templates::profile(&db_user, &locations, state.max_sats_per_location);
     let display_name = db_user.display_name();
-    let page = templates::base_with_user("Profile", content, Some(&display_name));
+    let page = templates::base_with_user("Profile", content, Some(&display_name), user.role());
 
     Ok(Html(page.into_string()))
 }
@@ -619,7 +623,27 @@ pub async fn wallet_page(
         lnurlw_string.as_deref(),
     );
     let username = get_navbar_username(&user.kind);
-    let page = templates::base_with_user("My Wallet", content, username.as_deref());
+    let page = templates::base_with_user("My Wallet", content, username.as_deref(), user.role());
 
     Html(page.into_string())
+}
+
+/// Admin users page - allows admins to manage user roles
+pub async fn admin_users_page(
+    user: CookieUser,
+    State(state): State<Arc<AppState>>,
+) -> Result<Html<String>, Response> {
+    // Require admin role
+    let username = user.ensure_registered_with_role(UserRole::Admin)?;
+
+    // Get all users
+    let users = state.db.list_users().await.map_err(|e| {
+        tracing::error!("Failed to list users: {}", e);
+        StatusCode::INTERNAL_SERVER_ERROR.into_response()
+    })?;
+
+    let content = templates::admin_users(&users);
+    let page = templates::base_with_user("User Management", content, Some(username), user.role());
+
+    Ok(Html(page.into_string()))
 }
