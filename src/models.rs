@@ -203,6 +203,25 @@ impl Location {
         self.status == "active"
     }
 
+    pub fn is_deactivated(&self) -> bool {
+        self.status == "deactivated"
+    }
+
+    pub fn is_admin_deactivated(&self) -> bool {
+        self.status == "admin_deactivated"
+    }
+
+    /// Check if this location is visible to regular users (active and not deactivated)
+    pub fn is_visible(&self) -> bool {
+        self.is_active()
+    }
+
+    /// Check if this location can be reactivated by its creator
+    /// Returns false if admin-deactivated (only admin can reactivate)
+    pub fn can_creator_reactivate(&self) -> bool {
+        self.is_deactivated()
+    }
+
     /// Get the most recent activity time (max of last_refill_at and last_withdraw_at).
     /// Used for calculating refill delta - we use the smaller delta (more recent activity).
     pub fn last_activity_at(&self) -> DateTime<Utc> {
@@ -639,16 +658,43 @@ mod tests {
         assert!(location.is_created());
         assert!(!location.is_programmed());
         assert!(!location.is_active());
+        assert!(!location.is_deactivated());
+        assert!(!location.is_admin_deactivated());
+        assert!(!location.is_visible());
 
         location.status = "programmed".to_string();
         assert!(!location.is_created());
         assert!(location.is_programmed());
         assert!(!location.is_active());
+        assert!(!location.is_deactivated());
+        assert!(!location.is_admin_deactivated());
+        assert!(!location.is_visible());
 
         location.status = "active".to_string();
         assert!(!location.is_created());
         assert!(!location.is_programmed());
         assert!(location.is_active());
+        assert!(!location.is_deactivated());
+        assert!(!location.is_admin_deactivated());
+        assert!(location.is_visible());
+
+        location.status = "deactivated".to_string();
+        assert!(!location.is_created());
+        assert!(!location.is_programmed());
+        assert!(!location.is_active());
+        assert!(location.is_deactivated());
+        assert!(!location.is_admin_deactivated());
+        assert!(!location.is_visible());
+        assert!(location.can_creator_reactivate());
+
+        location.status = "admin_deactivated".to_string();
+        assert!(!location.is_created());
+        assert!(!location.is_programmed());
+        assert!(!location.is_active());
+        assert!(!location.is_deactivated());
+        assert!(location.is_admin_deactivated());
+        assert!(!location.is_visible());
+        assert!(!location.can_creator_reactivate());
     }
 
     #[test]

@@ -1,4 +1,4 @@
-use crate::models::{Donation, Location, Photo, Refill, Scan};
+use crate::models::{Donation, Location, Photo, Refill, Scan, UserRole};
 use crate::templates::components::{
     donation_invoice_markup, donation_invoice_script, DonationInvoiceConfig,
 };
@@ -12,6 +12,7 @@ pub fn location_detail(
     refills: &[Refill],
     max_sats_per_location: i64,
     current_user_id: Option<&str>,
+    current_user_role: UserRole,
     error: Option<&str>,
     success: Option<&str>,
     withdrawn_amount: Option<i64>,
@@ -29,6 +30,7 @@ pub fn location_detail(
     let is_owner = current_user_id
         .map(|id| id == location.user_id)
         .unwrap_or(false);
+    let is_admin = current_user_role == UserRole::Admin;
     let can_manage_photos = is_owner && !location.is_active();
 
     // Generate Boltcard deep link for NFC programming
@@ -76,8 +78,8 @@ pub fn location_detail(
                 }
             }
 
-            // Next step banner for non-active locations (owner only)
-            @if is_owner && !location.is_active() {
+            // Next step banner for non-active locations (owner only, not for deactivated)
+            @if is_owner && !location.is_active() && !location.is_deactivated() && !location.is_admin_deactivated() {
                 div class="mb-6 p-6" style="background: var(--highlight-glow); border: 3px solid var(--highlight);" {
                     // Step 1: Upload photo
                     @if photos.is_empty() {
@@ -165,13 +167,69 @@ pub fn location_detail(
                 div class="flex justify-between items-start mb-4" {
                     h1 class="text-4xl font-black text-primary" { (location.name) }
 
-                    // Status badge
-                    @if location.is_active() {
-                        span class="badge-brutal filled" { "ACTIVE" }
-                    } @else if location.is_programmed() {
-                        span class="badge-brutal grey" { "PROGRAMMED" }
-                    } @else {
-                        span class="badge-brutal white" { "CREATED" }
+                    // Status badge and deactivate/reactivate controls
+                    div class="flex items-center gap-2" {
+                        @if is_owner || is_admin {
+                            @if location.is_active() {
+                                button
+                                    onclick={
+                                        "if(confirm('DEACTIVATE THIS LOCATION? Users will no longer be able to collect sats.')) { "
+                                        "fetch('/api/locations/" (location.id) "/deactivate', { method: 'POST' }) "
+                                        ".then(r => r.ok ? location.reload() : alert('FAILED TO DEACTIVATE')) "
+                                        "}"
+                                    }
+                                    class="btn-brutal" style="border-color: var(--accent-muted); color: var(--text-muted); padding: 0.25rem 0.5rem;"
+                                    title=(if is_admin && !is_owner { "Admin deactivate" } else { "Deactivate" }) {
+                                    i class="fa-solid fa-pause" {}
+                                }
+                            } @else if location.is_deactivated() {
+                                button
+                                    onclick={
+                                        "fetch('/api/locations/" (location.id) "/reactivate', { method: 'POST' }) "
+                                        ".then(r => r.ok ? location.reload() : alert('FAILED TO REACTIVATE')) "
+                                    }
+                                    class="btn-brutal-fill" style="padding: 0.25rem 0.5rem;"
+                                    title="Reactivate" {
+                                    i class="fa-solid fa-play" {}
+                                }
+                            } @else if location.is_admin_deactivated() {
+                                @if is_admin {
+                                    button
+                                        onclick={
+                                            "fetch('/api/locations/" (location.id) "/reactivate', { method: 'POST' }) "
+                                            ".then(r => r.ok ? location.reload() : alert('FAILED TO REACTIVATE')) "
+                                        }
+                                        class="btn-brutal-fill" style="padding: 0.25rem 0.5rem;"
+                                        title="Admin reactivate" {
+                                        i class="fa-solid fa-play" {}
+                                    }
+                                } @else {
+                                    span class="btn-brutal" style="border-color: var(--accent-muted); color: var(--text-muted); padding: 0.25rem 0.5rem; cursor: not-allowed;"
+                                        title="Contact admin to reactivate" {
+                                        i class="fa-solid fa-lock" {}
+                                    }
+                                }
+                            }
+                        }
+
+                        // Status badge
+                        @if location.is_active() {
+                            span class="badge-brutal filled" { "ACTIVE" }
+                        } @else if location.is_deactivated() {
+                            span class="badge-brutal grey" {
+                                i class="fa-solid fa-pause mr-1" {}
+                                "DEACTIVATED"
+                            }
+                        } @else if location.is_admin_deactivated() {
+                            span class="badge-brutal" style="border-color: var(--highlight); color: var(--highlight);" {
+                                i class="fa-solid fa-ban mr-1" {}
+                                "ADMIN DEACTIVATED"
+                            }
+                        } @else if location.is_programmed() {
+                            span class="badge-brutal grey" { "PROGRAMMED" }
+                        } @else {
+                            span class="badge-brutal white" { "CREATED" }
+                        }
                     }
                 }
 
@@ -222,6 +280,7 @@ pub fn location_detail(
                         }
                     }
                 }
+
             }
 
             // Map

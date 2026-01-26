@@ -2428,3 +2428,167 @@ pub async fn update_user_role(
 
     Ok(StatusCode::OK)
 }
+
+/// Deactivate a location
+///
+/// POST /api/locations/{location_id}/deactivate
+///
+/// Creators can deactivate their own active locations.
+/// Admins can deactivate any active location (using admin_deactivated status).
+pub async fn deactivate_location(
+    State(state): State<Arc<AppState>>,
+    auth: RequireRegistered,
+    Path(location_id): Path<String>,
+) -> Result<StatusCode, StatusCode> {
+    tracing::info!(
+        "Deactivate request for location {} by user {}",
+        location_id,
+        auth.user_id
+    );
+
+    // Get the location
+    let location = state
+        .db
+        .get_location(&location_id)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to get location: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?
+        .ok_or_else(|| {
+            tracing::warn!("Location not found: {}", location_id);
+            StatusCode::NOT_FOUND
+        })?;
+
+    // Check if location is active (only active locations can be deactivated)
+    if !location.is_active() {
+        tracing::warn!("Location {} is not active", location_id);
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let is_admin = auth.has_role(UserRole::Admin);
+    let is_owner = location.user_id == auth.user_id;
+
+    // Must be owner or admin
+    if !is_owner && !is_admin {
+        tracing::warn!(
+            "User {} attempted to deactivate location {} owned by {}",
+            auth.user_id,
+            location_id,
+            location.user_id
+        );
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    // Creators must be at least Creator role to deactivate their own locations
+    if is_owner && !is_admin {
+        auth.ensure_role(UserRole::Creator)
+            .map_err(|_| StatusCode::FORBIDDEN)?;
+    }
+
+    // Set status based on who is deactivating
+    let new_status = if is_admin && !is_owner {
+        "admin_deactivated"
+    } else {
+        "deactivated"
+    };
+
+    state
+        .db
+        .update_location_status(&location_id, new_status)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to update location status: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    tracing::info!(
+        "Location {} deactivated by {} (status: {})",
+        location.name,
+        auth.user_id,
+        new_status
+    );
+
+    Ok(StatusCode::OK)
+}
+
+/// Reactivate a location
+///
+/// POST /api/locations/{location_id}/reactivate
+///
+/// Creators can reactivate their own deactivated locations (but NOT admin_deactivated).
+/// Admins can reactivate any deactivated location (including admin_deactivated).
+pub async fn reactivate_location(
+    State(state): State<Arc<AppState>>,
+    auth: RequireRegistered,
+    Path(location_id): Path<String>,
+) -> Result<StatusCode, StatusCode> {
+    tracing::info!(
+        "Reactivate request for location {} by user {}",
+        location_id,
+        auth.user_id
+    );
+
+    // Get the location
+    let location = state
+        .db
+        .get_location(&location_id)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to get location: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?
+        .ok_or_else(|| {
+            tracing::warn!("Location not found: {}", location_id);
+            StatusCode::NOT_FOUND
+        })?;
+
+    // Check if location is deactivated
+    if !location.is_deactivated() && !location.is_admin_deactivated() {
+        tracing::warn!("Location {} is not deactivated", location_id);
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let is_admin = auth.has_role(UserRole::Admin);
+    let is_owner = location.user_id == auth.user_id;
+
+    // Must be owner or admin
+    if !is_owner && !is_admin {
+        tracing::warn!(
+            "User {} attempted to reactivate location {} owned by {}",
+            auth.user_id,
+            location_id,
+            location.user_id
+        );
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    // If admin_deactivated, only admins can reactivate
+    if location.is_admin_deactivated() && !is_admin {
+        tracing::warn!(
+            "User {} attempted to reactivate admin-deactivated location {}",
+            auth.user_id,
+            location_id
+        );
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    // Creators must be at least Creator role to reactivate their own locations
+    if is_owner && !is_admin {
+        auth.ensure_role(UserRole::Creator)
+            .map_err(|_| StatusCode::FORBIDDEN)?;
+    }
+
+    state
+        .db
+        .update_location_status(&location_id, "active")
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to update location status: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    tracing::info!("Location {} reactivated by {}", location.name, auth.user_id);
+
+    Ok(StatusCode::OK)
+}

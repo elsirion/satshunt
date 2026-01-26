@@ -187,6 +187,15 @@ async fn main() -> Result<()> {
             "/api/locations/:location_id",
             delete(handlers::delete_location),
         )
+        // Deactivate/reactivate location endpoints
+        .route(
+            "/api/locations/:location_id/deactivate",
+            post(handlers::deactivate_location),
+        )
+        .route(
+            "/api/locations/:location_id/reactivate",
+            post(handlers::reactivate_location),
+        )
         // Admin API endpoints
         .route(
             "/api/admin/users/:user_id/role",

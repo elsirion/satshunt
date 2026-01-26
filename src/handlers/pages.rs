@@ -130,6 +130,7 @@ pub async fn location_detail_page(
         .unwrap_or_default();
 
     let current_user_id = Some(user.user_id.as_str());
+    let current_user_role = user.role();
     let username = get_navbar_username(&user.kind);
 
     let content = templates::location_detail(
@@ -139,6 +140,7 @@ pub async fn location_detail_page(
         &refills,
         state.max_sats_per_location,
         current_user_id,
+        current_user_role,
         params.error.as_deref(),
         params.success.as_deref(),
         params.amount,
