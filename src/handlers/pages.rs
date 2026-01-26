@@ -649,3 +649,24 @@ pub async fn admin_users_page(
 
     Ok(Html(page.into_string()))
 }
+
+/// Admin locations page - allows admins to view and manage all locations
+pub async fn admin_locations_page(
+    user: CookieUser,
+    State(state): State<Arc<AppState>>,
+) -> Result<Html<String>, Response> {
+    // Require admin role
+    let username = user.ensure_registered_with_role(UserRole::Admin)?;
+
+    // Get all locations
+    let locations = state.db.list_locations().await.map_err(|e| {
+        tracing::error!("Failed to list locations: {}", e);
+        StatusCode::INTERNAL_SERVER_ERROR.into_response()
+    })?;
+
+    let content = templates::admin_locations(&locations, state.max_sats_per_location);
+    let page =
+        templates::base_with_user("Location Management", content, Some(username), user.role());
+
+    Ok(Html(page.into_string()))
+}

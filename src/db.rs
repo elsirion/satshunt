@@ -187,7 +187,6 @@ impl Database {
     }
 
     /// List all locations regardless of status - useful for admin functionality
-    #[allow(dead_code)]
     pub async fn list_locations(&self) -> Result<Vec<Location>> {
         sqlx::query_as::<_, Location>("SELECT * FROM locations ORDER BY created_at DESC")
             .fetch_all(&self.pool)

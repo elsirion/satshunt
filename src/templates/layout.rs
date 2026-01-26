@@ -177,9 +177,14 @@ fn navbar(username: Option<&str>, can_create_locations: bool, is_admin: bool) ->
                                         }
                                     }
                                     @if is_admin {
+                                        div style="border-top: 2px solid var(--accent-muted);" {}
                                         a href="/admin/users" class="flex items-center gap-2 px-4 py-2 text-highlight text-sm font-bold hover:bg-elevated orange" style="border-bottom: none;" {
                                             i class="fa-solid fa-users-gear w-4" {}
-                                            "MANAGE USERS"
+                                            "ALL USERS"
+                                        }
+                                        a href="/admin/locations" class="flex items-center gap-2 px-4 py-2 text-highlight text-sm font-bold hover:bg-elevated orange" style="border-bottom: none;" {
+                                            i class="fa-solid fa-map-location-dot w-4" {}
+                                            "ALL LOCATIONS"
                                         }
                                     }
                                 }
@@ -274,9 +279,14 @@ fn navbar(username: Option<&str>, can_create_locations: bool, is_admin: bool) ->
                                 }
                             }
                             @if is_admin {
+                                div class="my-2" style="border-top: 2px solid var(--accent-muted);" {}
                                 a href="/admin/users" class="flex items-center gap-2 py-2 px-3 text-highlight font-bold hover:bg-tertiary orange" style="border-bottom: none;" {
                                     i class="fa-solid fa-users-gear w-5" {}
-                                    "MANAGE USERS"
+                                    "ALL USERS"
+                                }
+                                a href="/admin/locations" class="flex items-center gap-2 py-2 px-3 text-highlight font-bold hover:bg-tertiary orange" style="border-bottom: none;" {
+                                    i class="fa-solid fa-map-location-dot w-5" {}
+                                    "ALL LOCATIONS"
                                 }
                             }
                         }

@@ -134,6 +134,10 @@ async fn main() -> Result<()> {
         .route("/locations", get(auth(handlers::profile_page)))
         // Admin routes
         .route("/admin/users", get(auth(handlers::admin_users_page)))
+        .route(
+            "/admin/locations",
+            get(auth(handlers::admin_locations_page)),
+        )
         // API routes
         .route("/api/locations", post(handlers::create_location))
         .route(
