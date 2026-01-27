@@ -1,3 +1,4 @@
+use super::format_sats_si;
 use crate::models::Location;
 use maud::{html, Markup, PreEscaped};
 
@@ -77,8 +78,8 @@ pub fn map(location_balances: &[(&Location, i64, i64)]) -> Markup {
                         .setHTML(`
                             <div style="color: #0f172a; padding: 8px;">
                                 <h3 style="font-weight: bold; margin-bottom: 4px;">${{loc.name}}</h3>
-                                <p style="margin: 4px 0;"><i class="fa-solid fa-bolt"></i> ${{loc.available_sats}} sats available</p>
-                                <p style="margin: 4px 0; font-size: 0.9em; color: #666;">Pool: ${{loc.pool_sats}} sats</p>
+                                <p style="margin: 4px 0;"><i class="fa-solid fa-bolt"></i> ${{loc.available_sats_fmt}} sats available</p>
+                                <p style="margin: 4px 0; font-size: 0.9em; color: #666;">Pool: ${{loc.pool_sats_fmt}} sats</p>
                                 <a href="/locations/${{loc.id}}" style="color: #3b82f6; text-decoration: underline;">View details</a>
                             </div>
                         `))
@@ -103,13 +104,15 @@ fn build_locations_json(location_balances: &[(&Location, i64, i64)]) -> String {
         .iter()
         .map(|(loc, available_sats, pool_sats)| {
             format!(
-                r#"{{"id":"{}","name":"{}","latitude":{},"longitude":{},"available_sats":{},"pool_sats":{}}}"#,
+                r#"{{"id":"{}","name":"{}","latitude":{},"longitude":{},"available_sats":{},"pool_sats":{},"available_sats_fmt":"{}","pool_sats_fmt":"{}"}}"#,
                 loc.id,
                 loc.name.replace('"', r#"\""#),
                 loc.latitude,
                 loc.longitude,
                 available_sats,
-                pool_sats
+                pool_sats,
+                format_sats_si(*available_sats),
+                format_sats_si(*pool_sats)
             )
         })
         .collect();
@@ -141,17 +144,17 @@ fn location_card(location: &Location, available_sats: i64, pool_sats: i64) -> Ma
                 div class="text-right" {
                     @if fill_percent > 50 {
                         div class="text-2xl font-black text-primary" {
-                            (available_sats) " "
+                            (format_sats_si(available_sats)) " "
                             i class="fa-solid fa-bolt" {}
                         }
                     } @else {
                         div class="text-2xl font-black text-highlight orange" {
-                            (available_sats) " "
+                            (format_sats_si(available_sats)) " "
                             i class="fa-solid fa-bolt" {}
                         }
                     }
                     div class="text-muted text-sm mono" {
-                        "POOL: " (pool_sats) " SATS"
+                        "POOL: " (format_sats_si(pool_sats)) " SATS"
                     }
                 }
             }
