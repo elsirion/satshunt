@@ -40,9 +40,9 @@ pub struct WithdrawQuery {
     pub error: Option<String>,
 }
 
-/// Helper to get username for navbar from CookieUser
-fn get_navbar_username(user: &CookieUser) -> Option<String> {
-    Some(user.display_name())
+/// Helper to get display name for navbar from CookieUser
+fn get_navbar_display_name(user: &CookieUser) -> String {
+    user.display_name()
 }
 
 pub async fn home_page(
@@ -54,9 +54,9 @@ pub async fn home_page(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    let username = get_navbar_username(&user);
+    let display_name = get_navbar_display_name(&user);
     let content = templates::home(&stats);
-    let page = templates::base_with_user("Home", content, username.as_deref(), user.role());
+    let page = templates::base_with_user("Home", content, &display_name, user.role(), user.is_registered());
 
     Ok(Html(page.into_string()))
 }
@@ -87,9 +87,9 @@ pub async fn map_page(
         location_balances.push((location, balance_msats / 1000, pool_msats / 1000));
     }
 
-    let username = get_navbar_username(&user);
+    let display_name = get_navbar_display_name(&user);
     let content = templates::map(&location_balances);
-    let page = templates::base_with_user("Map", content, username.as_deref(), user.role());
+    let page = templates::base_with_user("Map", content, &display_name, user.role(), user.is_registered());
 
     Ok(Html(page.into_string()))
 }
@@ -97,7 +97,7 @@ pub async fn map_page(
 pub async fn new_location_page(user: CookieUser) -> Result<Html<String>, Response> {
     let username = user.ensure_registered_with_role(UserRole::Creator)?;
     let content = templates::new_location();
-    let page = templates::base_with_user("Add Location", content, Some(username), user.role());
+    let page = templates::base_with_user("Add Location", content, username, user.role(), true);
     Ok(Html(page.into_string()))
 }
 
@@ -156,7 +156,7 @@ pub async fn location_detail_page(
 
     let current_user_id = Some(user.user_id.as_str());
     let current_user_role = user.role();
-    let username = get_navbar_username(&user);
+    let display_name = get_navbar_display_name(&user);
 
     let content = templates::location_detail(
         &location,
@@ -173,7 +173,7 @@ pub async fn location_detail_page(
         &donations,
         nfc_card.as_ref(),
     );
-    let page = templates::base_with_user(&location.name, content, username.as_deref(), user.role());
+    let page = templates::base_with_user(&location.name, content, &display_name, user.role(), user.is_registered());
 
     Ok(Html(page.into_string()))
 }
@@ -230,13 +230,13 @@ pub async fn donate_page(
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
-    let username = get_navbar_username(&user);
+    let display_name = get_navbar_display_name(&user);
     let content = templates::donate(
         total_pool_msats / 1000,
         locations.len(),
         &received_donations,
     );
-    let page = templates::base_with_user("Donate", content, username.as_deref(), user.role());
+    let page = templates::base_with_user("Donate", content, &display_name, user.role(), user.is_registered());
 
     Ok(Html(page.into_string()))
 }
@@ -460,7 +460,7 @@ pub async fn profile_page(
 
     let content = templates::profile(&db_user, &location_balances);
     let display_name = db_user.display_name();
-    let page = templates::base_with_user("Profile", content, Some(&display_name), user.role());
+    let page = templates::base_with_user("Profile", content, &display_name, user.role(), user.is_registered());
 
     Ok(Html(page.into_string()))
 }
@@ -511,7 +511,7 @@ pub async fn withdraw_page(
     let db_user = state.db.get_user_by_id(&user.user_id).await.ok().flatten();
 
     let is_new_user = matches!(user.kind, UserKind::AnonNew);
-    let username = get_navbar_username(&user);
+    let display_name = get_navbar_display_name(&user);
 
     // Check if we have SUN parameters
     let (picc_data, cmac) = match (&params.p, &params.c) {
@@ -530,8 +530,9 @@ pub async fn withdraw_page(
             let page = templates::base_with_user(
                 "Collect Sats",
                 content,
-                username.as_deref(),
+                &display_name,
                 user.role(),
+                user.is_registered(),
             );
             return Ok(Html(page.into_string()).into_response());
         }
@@ -604,8 +605,9 @@ pub async fn withdraw_page(
                     let page = templates::base_with_user(
                         "Collect Sats",
                         content,
-                        username.as_deref(),
+                        &display_name,
                         user.role(),
+                        user.is_registered(),
                     );
                     Ok(Html(page.into_string()).into_response())
                 }
@@ -625,8 +627,9 @@ pub async fn withdraw_page(
                     let page = templates::base_with_user(
                         "Collect Sats",
                         content,
-                        username.as_deref(),
+                        &display_name,
                         user.role(),
+                        user.is_registered(),
                     );
                     Ok(Html(page.into_string()).into_response())
                 }
@@ -666,8 +669,9 @@ pub async fn withdraw_page(
             let page = templates::base_with_user(
                 "Collect Sats",
                 content,
-                username.as_deref(),
+                &display_name,
                 user.role(),
+                user.is_registered(),
             );
             Ok(Html(page.into_string()).into_response())
         }
@@ -699,8 +703,9 @@ pub async fn withdraw_page(
             let page = templates::base_with_user(
                 "Collect Sats",
                 content,
-                username.as_deref(),
+                &display_name,
                 user.role(),
+                user.is_registered(),
             );
             Ok(Html(page.into_string()).into_response())
         }
@@ -772,8 +777,8 @@ pub async fn wallet_page(
         params.location.as_deref(),
         lnurlw_string.as_deref(),
     );
-    let username = get_navbar_username(&user);
-    let page = templates::base_with_user("My Wallet", content, username.as_deref(), user.role());
+    let display_name = get_navbar_display_name(&user);
+    let page = templates::base_with_user("My Wallet", content, &display_name, user.role(), user.is_registered());
 
     Html(page.into_string())
 }
@@ -793,7 +798,7 @@ pub async fn admin_users_page(
     })?;
 
     let content = templates::admin_users(&users);
-    let page = templates::base_with_user("User Management", content, Some(username), user.role());
+    let page = templates::base_with_user("User Management", content, username, user.role(), true);
 
     Ok(Html(page.into_string()))
 }
@@ -831,7 +836,7 @@ pub async fn admin_locations_page(
 
     let content = templates::admin_locations(&location_balances);
     let page =
-        templates::base_with_user("Location Management", content, Some(username), user.role());
+        templates::base_with_user("Location Management", content, username, user.role(), true);
 
     Ok(Html(page.into_string()))
 }

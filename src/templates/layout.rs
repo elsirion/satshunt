@@ -2,14 +2,15 @@ use crate::models::UserRole;
 use maud::{html, Markup, DOCTYPE};
 
 pub fn base(title: &str, content: Markup) -> Markup {
-    base_with_user(title, content, None, UserRole::User)
+    base_with_user(title, content, "anon", UserRole::User, false)
 }
 
 pub fn base_with_user(
     title: &str,
     content: Markup,
-    username: Option<&str>,
+    username: &str,
     role: UserRole,
+    is_registered: bool,
 ) -> Markup {
     let can_create_locations = role.has_at_least(UserRole::Creator);
     let is_admin = role == UserRole::Admin;
@@ -49,7 +50,7 @@ pub fn base_with_user(
                 script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js" {}
             }
             body {
-                (navbar(username, can_create_locations, is_admin))
+                (navbar(username, can_create_locations, is_admin, is_registered))
                 main class="content-container py-8" {
                     (content)
                 }
@@ -107,7 +108,7 @@ pub fn base_with_user(
     }
 }
 
-fn navbar(username: Option<&str>, can_create_locations: bool, is_admin: bool) -> Markup {
+fn navbar(username: &str, can_create_locations: bool, is_admin: bool, is_registered: bool) -> Markup {
     html! {
         nav class="bg-secondary" style="border-bottom: 3px solid var(--accent-border);" {
             div class="content-container py-4" {
@@ -150,11 +151,7 @@ fn navbar(username: Option<&str>, can_create_locations: bool, is_admin: bool) ->
                                 style="border: 2px solid var(--accent-muted);"
                                 aria-expanded="false" aria-haspopup="true" {
                                 i class="fa-solid fa-user" {}
-                                @if let Some(user) = username {
-                                    (user)
-                                } @else {
-                                    "anon"
-                                }
+                                (username)
                                 i class="fa-solid fa-chevron-down ml-2 text-xs" {}
                             }
                             // Dropdown menu
@@ -190,7 +187,7 @@ fn navbar(username: Option<&str>, can_create_locations: bool, is_admin: bool) ->
                                 }
                                 // Separator and auth options
                                 div style="border-top: 2px solid var(--accent-muted);" {
-                                    @if username.is_some() {
+                                    @if is_registered {
                                         form action="/logout" method="post" class="w-full" {
                                             button type="submit"
                                                 class="flex items-center gap-2 w-full px-4 py-2 text-muted hover:text-primary text-sm font-bold text-left cursor-pointer transition-colors"
@@ -256,11 +253,7 @@ fn navbar(username: Option<&str>, can_create_locations: bool, is_admin: bool) ->
                         // User display
                         div class="flex items-center gap-2 py-2 px-3 bg-tertiary text-primary font-bold mono mb-3" style="border: 3px solid var(--accent-muted);" {
                             i class="fa-solid fa-user" {}
-                            @if let Some(user) = username {
-                                (user)
-                            } @else {
-                                "anon"
-                            }
+                            (username)
                         }
                         // Menu options
                         div class="space-y-1" {
@@ -292,7 +285,7 @@ fn navbar(username: Option<&str>, can_create_locations: bool, is_admin: bool) ->
                         }
                         // Auth options
                         div class="mt-3 pt-3" style="border-top: 2px solid var(--accent-muted);" {
-                            @if username.is_some() {
+                            @if is_registered {
                                 form action="/logout" method="post" {
                                     button type="submit"
                                         class="flex items-center gap-2 w-full py-2 px-3 text-muted hover:text-primary hover:bg-tertiary font-bold text-left cursor-pointer" style="border: none; background: none;" {
