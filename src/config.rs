@@ -21,18 +21,13 @@ pub struct Config {
     #[arg(long, env = "SH_BASE_URL")]
     pub base_url: Option<String>,
 
-    /// Percentage of donation pool to distribute per minute (default: 0.016%)
-    /// This is divided equally among all active locations
-    #[arg(long, env = "SH_POOL_PERCENTAGE_PER_MINUTE", default_value = "0.00016")]
-    pub pool_percentage_per_minute: f64,
+    /// Time in days for a location to fill from empty to max_fill (default: 21)
+    #[arg(long, env = "SH_TIME_TO_FULL_DAYS", default_value = "21")]
+    pub time_to_full_days: u64,
 
-    /// Maximum sats per location (global cap)
-    #[arg(long, env = "SH_MAX_SATS_PER_LOCATION", default_value = "1000")]
-    pub max_sats_per_location: i64,
-
-    /// Refill check interval in seconds
-    #[arg(long, env = "SH_REFILL_CHECK_INTERVAL_SECS", default_value = "300")]
-    pub refill_check_interval_secs: u64,
+    /// Maximum percentage of donation pool that can fill a location (default: 0.1 = 10%)
+    #[arg(long, env = "SH_MAX_FILL_PERCENTAGE", default_value = "0.1")]
+    pub max_fill_percentage: f64,
 
     /// Static files directory
     #[arg(long, env = "SH_STATIC_DIR", default_value = "./static")]

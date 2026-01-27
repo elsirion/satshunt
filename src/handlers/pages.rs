@@ -3,6 +3,7 @@ use crate::{
         hash_password, remove_user_cookie, set_user_cookie, verify_user_password, CookieUser,
         LoginRequest, RegisterRequest, UserKind,
     },
+    balance::compute_balance_msats,
     handlers::api::{create_withdraw_token, AppState},
     models::{AuthMethod, UserRole},
     ntag424, templates,
@@ -72,8 +73,25 @@ pub async fn map_page(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
+    // Compute balances for all locations
+    let mut location_balances = Vec::new();
+    for location in &locations {
+        let pool_msats = state
+            .db
+            .get_location_donation_pool_balance(&location.id)
+            .await
+            .unwrap_or(0);
+        let balance_msats = compute_balance_msats(
+            pool_msats,
+            location.last_withdraw_at,
+            location.created_at,
+            &state.balance_config,
+        );
+        location_balances.push((location, balance_msats / 1000, pool_msats / 1000));
+    }
+
     let username = get_navbar_username(&user.kind);
-    let content = templates::map(&locations, state.max_sats_per_location);
+    let content = templates::map(&location_balances);
     let page = templates::base_with_user("Map", content, username.as_deref(), user.role());
 
     Ok(Html(page.into_string()))
@@ -112,13 +130,8 @@ pub async fn location_detail_page(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    let refills = state.db.get_refills_for_location(&id).await.map_err(|e| {
-        tracing::error!("Failed to get refills: {}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
-
     // Get location's donation pool balance and donation history
-    let donation_pool_msats = state
+    let pool_msats = state
         .db
         .get_location_donation_pool_balance(&id)
         .await
@@ -128,6 +141,14 @@ pub async fn location_detail_page(
         .list_location_donations(&id)
         .await
         .unwrap_or_default();
+
+    // Compute current balance
+    let available_msats = compute_balance_msats(
+        pool_msats,
+        location.last_withdraw_at,
+        location.created_at,
+        &state.balance_config,
+    );
 
     // Get NFC card for wipe QR code (for owner/admin)
     let nfc_card = state.db.get_nfc_card_by_location(&id).await.unwrap_or(None);
@@ -140,15 +161,14 @@ pub async fn location_detail_page(
         &location,
         &photos,
         &scans,
-        &refills,
-        state.max_sats_per_location,
+        available_msats / 1000,
+        pool_msats / 1000,
         current_user_id,
         current_user_role,
         params.error.as_deref(),
         params.success.as_deref(),
         params.amount,
         &state.base_url,
-        donation_pool_msats / 1000,
         &donations,
         nfc_card.as_ref(),
     );
@@ -420,7 +440,24 @@ pub async fn profile_page(
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
         })?;
 
-    let content = templates::profile(&db_user, &locations, state.max_sats_per_location);
+    // Compute balances for user's locations
+    let mut location_balances = Vec::new();
+    for location in &locations {
+        let pool_msats = state
+            .db
+            .get_location_donation_pool_balance(&location.id)
+            .await
+            .unwrap_or(0);
+        let balance_msats = compute_balance_msats(
+            pool_msats,
+            location.last_withdraw_at,
+            location.created_at,
+            &state.balance_config,
+        );
+        location_balances.push((location, balance_msats / 1000, pool_msats / 1000));
+    }
+
+    let content = templates::profile(&db_user, &location_balances);
     let display_name = db_user.display_name();
     let page = templates::base_with_user("Profile", content, Some(&display_name), user.role());
 
@@ -455,6 +492,20 @@ pub async fn withdraw_page(
     let user_balance_msats = state.db.get_user_balance(&user.user_id).await.unwrap_or(0);
     let user_balance_sats = user_balance_msats / 1000;
 
+    // Compute the location's available balance
+    let pool_msats = state
+        .db
+        .get_location_donation_pool_balance(&location_id)
+        .await
+        .unwrap_or(0);
+    let available_msats = compute_balance_msats(
+        pool_msats,
+        location.last_withdraw_at,
+        location.created_at,
+        &state.balance_config,
+    );
+    let available_sats = available_msats / 1000;
+
     // Get user info from DB for template
     let db_user = state.db.get_user_by_id(&user.user_id).await.ok().flatten();
 
@@ -468,7 +519,7 @@ pub async fn withdraw_page(
             // No SUN parameters - show error
             let content = templates::collect(templates::CollectParams {
                 location: &location,
-                available_sats: location.current_sats(),
+                available_sats,
                 current_balance_sats: user_balance_sats,
                 picc_data: "",
                 cmac: "",
@@ -551,7 +602,7 @@ pub async fn withdraw_page(
 
     let content = templates::collect(templates::CollectParams {
         location: &location,
-        available_sats: location.current_sats(),
+        available_sats,
         current_balance_sats: user_balance_sats,
         picc_data: &picc_data,
         cmac: &cmac,
@@ -669,7 +720,24 @@ pub async fn admin_locations_page(
         StatusCode::INTERNAL_SERVER_ERROR.into_response()
     })?;
 
-    let content = templates::admin_locations(&locations, state.max_sats_per_location);
+    // Compute balances for all locations
+    let mut location_balances = Vec::new();
+    for location in &locations {
+        let pool_msats = state
+            .db
+            .get_location_donation_pool_balance(&location.id)
+            .await
+            .unwrap_or(0);
+        let balance_msats = compute_balance_msats(
+            pool_msats,
+            location.last_withdraw_at,
+            location.created_at,
+            &state.balance_config,
+        );
+        location_balances.push((location, balance_msats / 1000, pool_msats / 1000));
+    }
+
+    let content = templates::admin_locations(&location_balances);
     let page =
         templates::base_with_user("Location Management", content, Some(username), user.role());
 

@@ -1,7 +1,9 @@
 use crate::models::Location;
 use maud::{html, Markup, PreEscaped};
 
-pub fn map(locations: &[Location], max_sats_per_location: i64) -> Markup {
+/// Display the map with locations and their computed balances
+/// location_balances is a slice of (location, available_sats, pool_sats)
+pub fn map(location_balances: &[(&Location, i64, i64)]) -> Markup {
     html! {
         h1 class="text-4xl font-black mb-8 text-primary" style="letter-spacing: -0.02em;" {
             i class="fa-solid fa-map mr-2" {}
@@ -21,10 +23,10 @@ pub fn map(locations: &[Location], max_sats_per_location: i64) -> Markup {
         div class="card-brutal-inset" {
             h2 class="heading-breaker" { "ALL LOCATIONS" }
             div class="grid gap-4" {
-                @for location in locations {
-                    (location_card(location, max_sats_per_location))
+                @for (location, available_sats, pool_sats) in location_balances {
+                    (location_card(location, *available_sats, *pool_sats))
                 }
-                @if locations.is_empty() {
+                @if location_balances.is_empty() {
                     div class="text-center py-8" {
                         p class="text-muted font-bold mb-4" {
                             "NO LOCATIONS YET. BE THE FIRST TO "
@@ -38,7 +40,7 @@ pub fn map(locations: &[Location], max_sats_per_location: i64) -> Markup {
             }
         }
 
-        // Map initialization script
+        // Map initialization script - build JSON manually with computed balances
         (PreEscaped(format!(r#"
         <script>
             // Initialize map with MapLibre
@@ -52,15 +54,11 @@ pub fn map(locations: &[Location], max_sats_per_location: i64) -> Markup {
             map.addControl(new maplibregl.NavigationControl());
 
             // Add locations as markers
-            const locations = {locations};
-            const maxSatsPerLocation = {max_sats_per_location};
+            const locations = {locations_json};
             const bounds = new maplibregl.LngLatBounds();
 
             locations.forEach(loc => {{
-                // Withdrawable amount is the same as current balance (internal transactions)
-                const withdrawableSats = Math.floor(loc.current_msats / 1000);
-
-                const satsPercent = (withdrawableSats / maxSatsPerLocation) * 100;
+                const satsPercent = loc.pool_sats > 0 ? (loc.available_sats / loc.pool_sats * 10) * 100 : 0;
                 const color = satsPercent > 50 ? '#22c55e' : satsPercent > 20 ? '#eab308' : '#ef4444';
 
                 // Create custom marker element
@@ -79,7 +77,8 @@ pub fn map(locations: &[Location], max_sats_per_location: i64) -> Markup {
                         .setHTML(`
                             <div style="color: #0f172a; padding: 8px;">
                                 <h3 style="font-weight: bold; margin-bottom: 4px;">${{loc.name}}</h3>
-                                <p style="margin: 4px 0;"><i class="fa-solid fa-bolt"></i> ${{withdrawableSats}} / ${{maxSatsPerLocation}} sats</p>
+                                <p style="margin: 4px 0;"><i class="fa-solid fa-bolt"></i> ${{loc.available_sats}} sats available</p>
+                                <p style="margin: 4px 0; font-size: 0.9em; color: #666;">Pool: ${{loc.pool_sats}} sats</p>
                                 <a href="/locations/${{loc.id}}" style="color: #3b82f6; text-decoration: underline;">View details</a>
                             </div>
                         `))
@@ -93,16 +92,34 @@ pub fn map(locations: &[Location], max_sats_per_location: i64) -> Markup {
             }}
         </script>
         "#,
-        locations = serde_json::to_string(locations).unwrap_or_else(|_| "[]".to_string()),
-        max_sats_per_location = max_sats_per_location
+        locations_json = build_locations_json(location_balances)
         )))
     }
 }
 
-fn location_card(location: &Location, max_sats_per_location: i64) -> Markup {
-    let withdrawable_sats = location.withdrawable_sats();
-    let sats_percent = if max_sats_per_location > 0 {
-        (withdrawable_sats as f64 / max_sats_per_location as f64 * 100.0) as i32
+/// Build JSON array for map markers with computed balances
+fn build_locations_json(location_balances: &[(&Location, i64, i64)]) -> String {
+    let items: Vec<String> = location_balances
+        .iter()
+        .map(|(loc, available_sats, pool_sats)| {
+            format!(
+                r#"{{"id":"{}","name":"{}","latitude":{},"longitude":{},"available_sats":{},"pool_sats":{}}}"#,
+                loc.id,
+                loc.name.replace('"', r#"\""#),
+                loc.latitude,
+                loc.longitude,
+                available_sats,
+                pool_sats
+            )
+        })
+        .collect();
+    format!("[{}]", items.join(","))
+}
+
+fn location_card(location: &Location, available_sats: i64, pool_sats: i64) -> Markup {
+    // Color based on how full the location is relative to its pool
+    let fill_percent = if pool_sats > 0 {
+        ((available_sats as f64 / (pool_sats as f64 * 0.1)) * 100.0) as i32
     } else {
         0
     };
@@ -122,19 +139,19 @@ fn location_card(location: &Location, max_sats_per_location: i64) -> Markup {
                     }
                 }
                 div class="text-right" {
-                    @if sats_percent > 50 {
+                    @if fill_percent > 50 {
                         div class="text-2xl font-black text-primary" {
-                            (withdrawable_sats) " "
+                            (available_sats) " "
                             i class="fa-solid fa-bolt" {}
                         }
                     } @else {
                         div class="text-2xl font-black text-highlight orange" {
-                            (withdrawable_sats) " "
+                            (available_sats) " "
                             i class="fa-solid fa-bolt" {}
                         }
                     }
                     div class="text-muted text-sm mono" {
-                        "/ " (max_sats_per_location) " SATS"
+                        "POOL: " (pool_sats) " SATS"
                     }
                 }
             }

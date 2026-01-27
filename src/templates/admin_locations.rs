@@ -1,22 +1,30 @@
 use crate::models::Location;
 use maud::{html, Markup, PreEscaped};
 
-pub fn admin_locations(locations: &[Location], max_sats_per_location: i64) -> Markup {
-    let active: Vec<_> = locations.iter().filter(|l| l.is_active()).collect();
-    let deactivated: Vec<_> = locations.iter().filter(|l| l.is_deactivated()).collect();
-    let admin_deactivated: Vec<_> = locations
+/// Admin locations page showing all locations with computed balances.
+/// location_balances is a slice of (location, available_sats, pool_sats)
+pub fn admin_locations(location_balances: &[(&Location, i64, i64)]) -> Markup {
+    let active_count = location_balances
         .iter()
-        .filter(|l| l.is_admin_deactivated())
-        .collect();
-    let programmed: Vec<_> = locations.iter().filter(|l| l.is_programmed()).collect();
-    let created: Vec<_> = locations.iter().filter(|l| l.is_created()).collect();
-
-    let active_count = active.len();
-    let deactivated_count = deactivated.len();
-    let admin_deactivated_count = admin_deactivated.len();
-    let programmed_count = programmed.len();
-    let created_count = created.len();
-    let total_count = locations.len();
+        .filter(|(l, _, _)| l.is_active())
+        .count();
+    let deactivated_count = location_balances
+        .iter()
+        .filter(|(l, _, _)| l.is_deactivated())
+        .count();
+    let admin_deactivated_count = location_balances
+        .iter()
+        .filter(|(l, _, _)| l.is_admin_deactivated())
+        .count();
+    let programmed_count = location_balances
+        .iter()
+        .filter(|(l, _, _)| l.is_programmed())
+        .count();
+    let created_count = location_balances
+        .iter()
+        .filter(|(l, _, _)| l.is_created())
+        .count();
+    let total_count = location_balances.len();
 
     html! {
         div class="mb-8" {
@@ -72,7 +80,7 @@ pub fn admin_locations(locations: &[Location], max_sats_per_location: i64) -> Ma
                 }
             }
 
-            @if locations.is_empty() {
+            @if location_balances.is_empty() {
                 div class="card-brutal-inset text-center" style="padding: 3rem;" {
                     div class="text-6xl mb-6 text-muted" {
                         i class="fa-solid fa-location-dot" {}
@@ -84,8 +92,8 @@ pub fn admin_locations(locations: &[Location], max_sats_per_location: i64) -> Ma
                 }
             } @else {
                 div class="space-y-4" id="locations-list" {
-                    @for location in locations {
-                        (location_card(location, max_sats_per_location))
+                    @for (location, available_sats, pool_sats) in location_balances {
+                        (location_card(location, *available_sats, *pool_sats))
                     }
                 }
             }
@@ -126,7 +134,7 @@ pub fn admin_locations(locations: &[Location], max_sats_per_location: i64) -> Ma
     }
 }
 
-fn location_card(location: &Location, max_sats_per_location: i64) -> Markup {
+fn location_card(location: &Location, available_sats: i64, pool_sats: i64) -> Markup {
     let status = if location.is_active() {
         "active"
     } else if location.is_deactivated() {
@@ -157,9 +165,10 @@ fn location_card(location: &Location, max_sats_per_location: i64) -> Markup {
         _ => html! { span class="badge-brutal white" { "CREATED" } },
     };
 
-    let withdrawable_sats = location.withdrawable_sats();
-    let sats_percent = if max_sats_per_location > 0 {
-        (withdrawable_sats as f64 / max_sats_per_location as f64 * 100.0) as i32
+    // Calculate percentage based on available vs max fill (10% of pool)
+    let max_fill_sats = (pool_sats as f64 * 0.1) as i64;
+    let sats_percent = if max_fill_sats > 0 {
+        ((available_sats as f64 / max_fill_sats as f64) * 100.0).min(100.0) as i32
     } else {
         0
     };
@@ -232,7 +241,7 @@ fn location_card(location: &Location, max_sats_per_location: i64) -> Markup {
                         div class="flex justify-between items-center mb-3" {
                             div class="label-brutal" { "BALANCE" }
                             div class="text-muted text-xs mono" {
-                                (withdrawable_sats) " / " (max_sats_per_location) " SATS"
+                                (available_sats) " SATS (POOL: " (pool_sats) ")"
                             }
                         }
                         div class="progress-brutal" {

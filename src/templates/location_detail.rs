@@ -1,4 +1,4 @@
-use crate::models::{Donation, Location, NfcCard, Photo, Refill, Scan, UserRole};
+use crate::models::{Donation, Location, NfcCard, Photo, Scan, UserRole};
 use crate::templates::components::{
     donation_invoice_markup, donation_invoice_script, DonationInvoiceConfig,
 };
@@ -9,21 +9,21 @@ pub fn location_detail(
     location: &Location,
     photos: &[Photo],
     scans: &[Scan],
-    refills: &[Refill],
-    max_sats_per_location: i64,
+    available_sats: i64,
+    pool_sats: i64,
     current_user_id: Option<&str>,
     current_user_role: UserRole,
     error: Option<&str>,
     success: Option<&str>,
     withdrawn_amount: Option<i64>,
     base_url: &str,
-    donation_pool_sats: i64,
     donations: &[Donation],
     nfc_card: Option<&NfcCard>,
 ) -> Markup {
-    let withdrawable_sats = location.withdrawable_sats();
-    let sats_percent = if max_sats_per_location > 0 {
-        (withdrawable_sats as f64 / max_sats_per_location as f64 * 100.0) as i32
+    // Max fill = 10% of pool, fill percentage based on available vs max fill
+    let max_fill_sats = (pool_sats as f64 * 0.1) as i64;
+    let sats_percent = if max_fill_sats > 0 {
+        ((available_sats as f64 / max_fill_sats as f64) * 100.0).min(100.0) as i32
     } else {
         0
     };
@@ -244,14 +244,14 @@ pub fn location_detail(
                     div class="card-brutal-inset p-4" {
                         div class="label-brutal text-xs mb-2" { "AVAILABLE SATS" }
                         div class="text-2xl font-black text-highlight orange" {
-                            (withdrawable_sats) " "
+                            (available_sats) " "
                             i class="fa-solid fa-bolt" {}
                         }
                     }
                     div class="card-brutal-inset p-4" {
-                        div class="label-brutal text-xs mb-2" { "MAX CAPACITY" }
+                        div class="label-brutal text-xs mb-2" { "POOL BALANCE" }
                         div class="text-2xl font-black text-secondary" {
-                            (max_sats_per_location) " "
+                            (pool_sats) " "
                             i class="fa-solid fa-bolt" {}
                         }
                     }
@@ -362,13 +362,13 @@ pub fn location_detail(
                         div {
                             div class="label-brutal text-xs mb-1" { "POOL BALANCE" }
                             div class="text-3xl font-black text-highlight orange" {
-                                (donation_pool_sats) " "
+                                (pool_sats) " "
                                 i class="fa-solid fa-bolt" {}
                             }
                         }
                         div class="text-right" {
                             div class="text-sm text-muted font-bold" { "DEDICATED TO THIS LOCATION" }
-                            div class="text-xs text-secondary font-bold mt-1" { "Auto-refills location balance" }
+                            div class="text-xs text-secondary font-bold mt-1" { "Fills location over time" }
                         }
                     }
 
@@ -480,125 +480,6 @@ pub fn location_detail(
                             }
                         }
                     }
-                }
-            }
-
-            // Refill History (default collapsed)
-            @if !refills.is_empty() {
-                div class="card-brutal-inset mb-8" {
-                    details {
-                        summary class="text-2xl font-black text-primary cursor-pointer select-none hover:text-highlight transition-colors" {
-                            i class="fa-solid fa-fill-drip mr-2" {}
-                            "REFILL HISTORY "
-                            span class="text-base text-muted mono" { "[" (refills.len()) " REFILLS]" }
-                        }
-
-                        div class="overflow-x-auto mt-4" {
-                            table id="refillsTable" class="w-full" {
-                                thead {
-                                    tr style="border-bottom: 2px solid var(--accent-muted);" {
-                                        th class="text-left py-3 px-4 text-secondary font-black text-xs" { "DATE" }
-                                        th class="text-right py-3 px-4 text-secondary font-black text-xs" { "AMOUNT ADDED" }
-                                        th class="text-right py-3 px-4 text-secondary font-black text-xs" { "BALANCE BEFORE" }
-                                        th class="text-right py-3 px-4 text-secondary font-black text-xs" { "BALANCE AFTER" }
-                                        th class="text-right py-3 px-4 text-secondary font-black text-xs" { "BASE RATE" }
-                                        th class="text-right py-3 px-4 text-secondary font-black text-xs" { "SLOWDOWN" }
-                                    }
-                                }
-                                tbody id="refillsTableBody" {
-                                    @for (index, refill) in refills.iter().enumerate() {
-                                        tr style="border-bottom: 2px solid var(--accent-muted);" class="hover:bg-tertiary transition-colors refill-row" data-index=(index) {
-                                            td class="py-3 px-4 text-secondary font-bold mono text-xs" {
-                                                (refill.refilled_at.format("%Y-%m-%d %H:%M:%S UTC"))
-                                            }
-                                            td class="py-3 px-4 text-right mono text-sm" {
-                                                span class="text-highlight orange font-black" {
-                                                    "+" (format!("{:.3}", refill.sats_added()))
-                                                }
-                                                " "
-                                                i class="fa-solid fa-bolt text-highlight orange" {}
-                                            }
-                                            td class="py-3 px-4 text-right mono text-muted font-bold text-sm" {
-                                                (format!("{:.3}", refill.balance_before_sats()))
-                                            }
-                                            td class="py-3 px-4 text-right mono text-primary font-bold text-sm" {
-                                                (format!("{:.3}", refill.balance_after_sats()))
-                                            }
-                                            td class="py-3 px-4 text-right mono text-secondary font-bold text-xs" {
-                                                (format!("{:.3}", refill.base_rate_sats_per_min())) " SATS/MIN"
-                                            }
-                                            td class="py-3 px-4 text-right mono text-secondary font-bold text-xs" {
-                                                (format!("{:.3}x", refill.slowdown_factor))
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        // Pagination controls
-                        @if refills.len() > 20 {
-                            div id="refillsPagination" class="flex items-center justify-center gap-2 mt-6" {
-                                button id="refillsPrevBtn"
-                                    class="btn-brutal disabled:opacity-50 disabled:cursor-not-allowed"
-                                    onclick="changeRefillsPage(-1)" {
-                                    i class="fa-solid fa-chevron-left mr-2" {}
-                                    "PREVIOUS"
-                                }
-                                div id="refillsPageInfo" class="px-4 py-2 text-secondary font-bold mono" {}
-                                button id="refillsNextBtn"
-                                    class="btn-brutal disabled:opacity-50 disabled:cursor-not-allowed"
-                                    onclick="changeRefillsPage(1)" {
-                                    "NEXT"
-                                    i class="fa-solid fa-chevron-right ml-2" {}
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Refills pagination script
-                @if refills.len() > 20 {
-                    (PreEscaped(format!(r#"
-                    <script>
-                        let refillsCurrentPage = 1;
-                        const refillsPerPage = 20;
-                        const refillsTotalItems = {};
-
-                        function updateRefillsTable() {{
-                            const rows = document.querySelectorAll('.refill-row');
-                            const startIndex = (refillsCurrentPage - 1) * refillsPerPage;
-                            const endIndex = startIndex + refillsPerPage;
-
-                            rows.forEach((row, index) => {{
-                                if (index >= startIndex && index < endIndex) {{
-                                    row.style.display = '';
-                                }} else {{
-                                    row.style.display = 'none';
-                                }}
-                            }});
-
-                            // Update pagination controls
-                            const totalPages = Math.ceil(refillsTotalItems / refillsPerPage);
-                            document.getElementById('refillsPageInfo').textContent = `Page ${{refillsCurrentPage}} of ${{totalPages}}`;
-                            document.getElementById('refillsPrevBtn').disabled = refillsCurrentPage === 1;
-                            document.getElementById('refillsNextBtn').disabled = refillsCurrentPage === totalPages;
-                        }}
-
-                        function changeRefillsPage(delta) {{
-                            const totalPages = Math.ceil(refillsTotalItems / refillsPerPage);
-                            const newPage = refillsCurrentPage + delta;
-
-                            if (newPage >= 1 && newPage <= totalPages) {{
-                                refillsCurrentPage = newPage;
-                                updateRefillsTable();
-                            }}
-                        }}
-
-                        // Initialize on page load
-                        updateRefillsTable();
-                    </script>
-                    "#, refills.len())))
                 }
             }
 
@@ -726,7 +607,7 @@ pub fn location_detail(
         "#,
             location.longitude, location.latitude,
             location.longitude, location.latitude,
-            location.name, withdrawable_sats
+            location.name, available_sats
         )))
 
         // Photo upload script - auto-upload on file selection

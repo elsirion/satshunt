@@ -1,5 +1,6 @@
 use crate::{
     auth::{AuthUser, CookieUser, Key, RequireRegistered},
+    balance::BalanceConfig,
     db::Database,
     donation::NewDonation,
     lightning::{Lightning, LightningService},
@@ -39,7 +40,7 @@ pub struct AppState {
     pub lightning: Arc<dyn Lightning>,
     pub upload_dir: PathBuf,
     pub base_url: String,
-    pub max_sats_per_location: i64,
+    pub balance_config: BalanceConfig,
     pub donation_sender: mpsc::UnboundedSender<NewDonation>,
     /// Key for signing private cookies
     pub cookie_key: Key,
@@ -139,11 +140,10 @@ pub async fn create_location(
         .map_err(|_| StatusCode::FORBIDDEN)?;
 
     tracing::info!(
-        "Creating location: {} at ({}, {}) with max {} sats",
+        "Creating location: {} at ({}, {})",
         payload.name,
         payload.latitude,
-        payload.longitude,
-        state.max_sats_per_location
+        payload.longitude
     );
 
     // Generate LNURL secret
@@ -724,15 +724,8 @@ pub async fn delete_location(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    // If location has msats, they are lost when the location is deleted
-    // (The donation pool balance will remain for the deleted location but won't be used)
-    if location.current_msats > 0 {
-        tracing::info!(
-            "Location {} deleted with {} sats (returned to its donation pool)",
-            location.name,
-            location.current_sats()
-        );
-    }
+    // Log deletion - any pool balance remains but is no longer accessible
+    tracing::info!("Location {} ({}) deleted", location.name, location_id);
 
     // Delete the location
     let result = state
@@ -758,157 +751,6 @@ pub async fn delete_location(
         auth.user_id
     );
     Ok(StatusCode::NO_CONTENT)
-}
-
-/// Calculate slowdown factor based on how full the location is
-/// Formula: slowdown = 1 / (1 + exp(k * (fill_ratio - 0.8)))
-/// As location fills up past 80%, refill rate slows down
-fn calculate_slowdown_factor(current_msats: i64, max_msats: i64) -> f64 {
-    const K: f64 = 0.1; // steepness parameter
-    const THRESHOLD: f64 = 0.8; // start slowing down at 80% full
-
-    let fill_ratio = current_msats as f64 / max_msats as f64;
-    let exponent = K * (fill_ratio - THRESHOLD);
-    1.0 / (1.0 + exponent.exp())
-}
-
-/// Manually trigger the refill process for all locations
-/// Each location refills from its own donation pool
-/// Formula: refill_rate = pool_balance * 0.00016 per minute (with slowdown as location fills up)
-pub async fn manual_refill(
-    State(state): State<Arc<AppState>>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
-    tracing::info!("Manual refill triggered");
-
-    let locations = state.db.list_active_locations().await.map_err(|e| {
-        tracing::error!("Failed to list active locations: {}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
-
-    if locations.is_empty() {
-        return Ok(Json(json!({
-            "success": true,
-            "locations_refilled": 0,
-            "total_sats_refilled": 0,
-            "message": "No active locations to refill"
-        })));
-    }
-
-    let now = Utc::now();
-    let mut total_refilled_msats = 0i64;
-    let mut locations_refilled = 0;
-
-    const POOL_PERCENTAGE_PER_MINUTE: f64 = 0.00016;
-
-    for location in locations {
-        // Calculate how much time has passed since last activity
-        let minutes_since_activity = (now - location.last_activity_at()).num_minutes();
-
-        if minutes_since_activity < 1 {
-            continue; // Not time to refill yet
-        }
-
-        let max_msats = state.max_sats_per_location * 1000;
-        let max_refill_msats = max_msats - location.current_msats;
-
-        if max_refill_msats <= 0 {
-            continue; // Already at max
-        }
-
-        // Get location's pool balance
-        let pool_balance_msats = state
-            .db
-            .get_location_donation_pool_balance(&location.id)
-            .await
-            .unwrap_or(0);
-
-        if pool_balance_msats <= 0 {
-            continue; // No funds in pool
-        }
-
-        // Apply slowdown factor based on how full the location is
-        let slowdown_factor = calculate_slowdown_factor(location.current_msats, max_msats);
-
-        // Calculate refill rate: pool * percentage * slowdown
-        let rate_msats = (pool_balance_msats as f64 * POOL_PERCENTAGE_PER_MINUTE * slowdown_factor)
-            .round() as i64;
-
-        // Calculate refill amount
-        let refill_msats = (minutes_since_activity * rate_msats)
-            .min(pool_balance_msats)
-            .min(max_refill_msats);
-
-        if refill_msats <= 0 {
-            continue;
-        }
-
-        let balance_before = location.current_msats;
-        let new_balance_msats = location.current_msats + refill_msats;
-
-        // Record debit from location's pool
-        state
-            .db
-            .record_location_pool_debit(&location.id, refill_msats)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to record pool debit: {}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?;
-
-        // Update location balance
-        state
-            .db
-            .update_location_msats(&location.id, new_balance_msats)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to update location msats: {}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?;
-
-        state
-            .db
-            .update_last_refill(&location.id)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to update last refill: {}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?;
-
-        // Record the refill in the log
-        state
-            .db
-            .record_refill(
-                &location.id,
-                refill_msats,
-                balance_before,
-                new_balance_msats,
-                rate_msats,
-                slowdown_factor,
-            )
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to record refill: {}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?;
-
-        total_refilled_msats += refill_msats;
-        locations_refilled += 1;
-
-        tracing::info!(
-            "Refilled location {} with {} sats from pool (now at {}/{}, pool remaining: {} sats)",
-            location.name,
-            refill_msats / 1000,
-            new_balance_msats / 1000,
-            state.max_sats_per_location,
-            (pool_balance_msats - refill_msats) / 1000
-        );
-    }
-
-    Ok(Json(json!({
-        "success": true,
-        "locations_refilled": locations_refilled,
-        "total_sats_refilled": total_refilled_msats / 1000
-    })))
 }
 
 /// Apply EXIF orientation to correctly rotate images from cameras/phones
@@ -1230,8 +1072,23 @@ async fn verify_and_prepare_withdrawal(
     let nfc_card = verification.nfc_card;
     let counter = verification.counter;
 
-    // Check if location has sats available
-    let withdrawable_msats = location.withdrawable_msats();
+    // Compute the actual withdrawable balance from pool and time
+    let pool_balance_msats = state
+        .db
+        .get_location_donation_pool_balance(&location.id)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to get pool balance: {}", e);
+            WithdrawResponse::error("Failed to check balance.")
+        })?;
+
+    let withdrawable_msats = crate::balance::compute_balance_msats(
+        pool_balance_msats,
+        location.last_withdraw_at,
+        location.created_at,
+        &state.balance_config,
+    );
+
     if withdrawable_msats <= 0 {
         return Err(WithdrawResponse::error(
             "No sats available at this location.",
@@ -1306,7 +1163,7 @@ pub async fn withdraw_ln_address(
     // This prevents double-spending even if the same scan is used multiple times
     let claimed_msats = match state
         .db
-        .claim_withdrawal(&location_id, counter as i64)
+        .claim_withdrawal(&location_id, counter as i64, &state.balance_config)
         .await
     {
         Ok(Some(msats)) => msats,
@@ -1498,7 +1355,7 @@ pub async fn lnurlw_callback(
     // This prevents double-spending even if the same scan is used multiple times
     let claimed_msats = match state
         .db
-        .claim_withdrawal(&location_id, counter as i64)
+        .claim_withdrawal(&location_id, counter as i64, &state.balance_config)
         .await
     {
         Ok(Some(msats)) => msats,
@@ -1579,7 +1436,7 @@ pub async fn withdraw_invoice(
     // This prevents double-spending even if the same scan is used multiple times
     let claimed_msats = match state
         .db
-        .claim_withdrawal(&location_id, counter as i64)
+        .claim_withdrawal(&location_id, counter as i64, &state.balance_config)
         .await
     {
         Ok(Some(msats)) => msats,
@@ -1720,19 +1577,10 @@ pub async fn collect_sats(
     let location = verification.location;
     let counter = verification.counter;
 
-    // Check if location has sats available
-    if location.current_msats <= 0 {
-        return error_response(
-            user.jar,
-            StatusCode::CONFLICT,
-            "No sats available at this location. Check back later!",
-        );
-    }
-
-    // Atomically claim collection (creates user if needed, updates counter, zeros balance)
+    // Atomically claim collection (creates user if needed, updates counter, computes balance)
     let collected_msats = match state
         .db
-        .claim_collection(&location_id, &user.user_id, counter as i64)
+        .claim_collection(&location_id, &user.user_id, counter as i64, &state.balance_config)
         .await
     {
         Ok(Some(msats)) => msats,

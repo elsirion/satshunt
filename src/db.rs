@@ -1,6 +1,7 @@
+use crate::balance::{compute_balance_msats, BalanceConfig};
 use crate::models::{
-    AuthMethod, Donation, Location, LocationPoolDebit, NfcCard, Photo, Refill, Scan, Stats, User,
-    UserRole, UserTransaction, WithdrawalStatus,
+    AuthMethod, Donation, Location, NfcCard, Photo, Scan, Stats, User, UserRole, UserTransaction,
+    WithdrawalStatus,
 };
 use anyhow::Result;
 use chrono::Utc;
@@ -211,23 +212,6 @@ impl Database {
         .map_err(Into::into)
     }
 
-    pub async fn update_location_msats(&self, id: &str, msats: i64) -> Result<SqliteQueryResult> {
-        sqlx::query("UPDATE locations SET current_msats = ? WHERE id = ?")
-            .bind(msats)
-            .bind(id)
-            .execute(&self.pool)
-            .await
-            .map_err(Into::into)
-    }
-
-    pub async fn update_last_refill(&self, id: &str) -> Result<SqliteQueryResult> {
-        sqlx::query("UPDATE locations SET last_refill_at = ? WHERE id = ?")
-            .bind(Utc::now())
-            .bind(id)
-            .execute(&self.pool)
-            .await
-            .map_err(Into::into)
-    }
 
     pub async fn update_location_status(
         &self,
@@ -398,7 +382,7 @@ impl Database {
     }
 
     /// Get the balance of a location's donation pool
-    /// (sum of received location donations minus debits)
+    /// (sum of received location donations minus withdrawals/scans)
     pub async fn get_location_donation_pool_balance(&self, location_id: &str) -> Result<i64> {
         // Sum of received donations for this location
         let donations: (i64,) = sqlx::query_as(
@@ -408,40 +392,15 @@ impl Database {
         .fetch_one(&self.pool)
         .await?;
 
-        // Sum of debits from this location's pool
-        let debits: (i64,) = sqlx::query_as(
-            "SELECT COALESCE(SUM(amount_msats), 0) FROM location_pool_debits WHERE location_id = ?",
+        // Sum of withdrawals (scans) from this location
+        let withdrawals: (i64,) = sqlx::query_as(
+            "SELECT COALESCE(SUM(msats_withdrawn), 0) FROM scans WHERE location_id = ?",
         )
         .bind(location_id)
         .fetch_one(&self.pool)
         .await?;
 
-        Ok(donations.0 - debits.0)
-    }
-
-    /// Record a debit from a location's donation pool (when refills use the pool)
-    pub async fn record_location_pool_debit(
-        &self,
-        location_id: &str,
-        amount_msats: i64,
-    ) -> Result<LocationPoolDebit> {
-        let id = Uuid::new_v4().to_string();
-        let now = Utc::now();
-
-        sqlx::query_as::<_, LocationPoolDebit>(
-            r#"
-            INSERT INTO location_pool_debits (id, location_id, amount_msats, created_at)
-            VALUES (?, ?, ?, ?)
-            RETURNING *
-            "#,
-        )
-        .bind(&id)
-        .bind(location_id)
-        .bind(amount_msats)
-        .bind(now)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(Into::into)
+        Ok(donations.0 - withdrawals.0)
     }
 
     /// List all received donations for a location (for display on location page)
@@ -528,34 +487,30 @@ impl Database {
                 .fetch_one(&self.pool)
                 .await?;
 
-        let total_msats_available: Option<i64> =
-            sqlx::query_scalar("SELECT SUM(current_msats) FROM locations WHERE status = 'active'")
-                .fetch_one(&self.pool)
-                .await?;
-
         let total_scans: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM scans")
             .fetch_one(&self.pool)
             .await?;
 
-        // Total donation pool = sum of all location-specific donations minus debits
+        // Total donation pool = sum of all location-specific donations minus withdrawals (scans)
         let total_donations: (i64,) = sqlx::query_as(
             "SELECT COALESCE(SUM(amount_msats), 0) FROM donations WHERE location_id IS NOT NULL AND status = 'received'",
         )
         .fetch_one(&self.pool)
         .await?;
 
-        let total_debits: (i64,) =
-            sqlx::query_as("SELECT COALESCE(SUM(amount_msats), 0) FROM location_pool_debits")
+        let total_withdrawals: (i64,) =
+            sqlx::query_as("SELECT COALESCE(SUM(msats_withdrawn), 0) FROM scans")
                 .fetch_one(&self.pool)
                 .await?;
 
-        let total_pool_msats = total_donations.0 - total_debits.0;
+        let total_pool_msats = total_donations.0 - total_withdrawals.0;
 
         Ok(Stats {
             total_locations,
-            total_sats_available: total_msats_available.unwrap_or(0) / 1000, // Convert to sats for display
+            // Total pool balance represents the total sats available across all locations
+            total_sats_available: total_pool_msats.max(0) / 1000,
             total_scans,
-            donation_pool_sats: total_pool_msats / 1000,
+            donation_pool_sats: total_pool_msats.max(0) / 1000,
         })
     }
 
@@ -643,15 +598,20 @@ impl Database {
             .map_err(Into::into)
     }
 
-    /// Atomically claim a withdrawal by updating the counter and zeroing the balance.
+    /// Atomically claim a withdrawal by updating the counter and recording the scan.
     ///
     /// This prevents double-spending by checking the counter hasn't been used yet
-    /// and updating it in a single transaction. Returns the claimed amount in msats
-    /// if successful, or None if the counter was already claimed.
+    /// and updating it in a single transaction. The balance is computed based on
+    /// time since last withdrawal and the donation pool balance. Recording the scan
+    /// debits from the pool for future balance calculations.
+    ///
+    /// Returns the claimed amount in msats if successful, or None if the counter
+    /// was already claimed or no balance is available.
     pub async fn claim_withdrawal(
         &self,
         location_id: &str,
         new_counter: i64,
+        balance_config: &BalanceConfig,
     ) -> Result<Option<i64>> {
         let mut tx = self.pool.begin().await?;
 
@@ -671,7 +631,7 @@ impl Database {
             return Ok(None);
         }
 
-        // Get the current balance
+        // Get the location
         let location: Option<Location> = sqlx::query_as("SELECT * FROM locations WHERE id = ?")
             .bind(location_id)
             .fetch_optional(&mut *tx)
@@ -682,24 +642,63 @@ impl Database {
             None => return Ok(None),
         };
 
-        let withdrawable_msats = location.withdrawable_msats();
+        // Calculate pool balance within transaction
+        let donations: (i64,) = sqlx::query_as(
+            "SELECT COALESCE(SUM(amount_msats), 0) FROM donations WHERE location_id = ? AND status = 'received'",
+        )
+        .bind(location_id)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        let withdrawals: (i64,) = sqlx::query_as(
+            "SELECT COALESCE(SUM(msats_withdrawn), 0) FROM scans WHERE location_id = ?",
+        )
+        .bind(location_id)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        let pool_balance_msats = donations.0 - withdrawals.0;
+
+        // Compute the available balance
+        let withdrawable_msats = compute_balance_msats(
+            pool_balance_msats,
+            location.last_withdraw_at,
+            location.created_at,
+            balance_config,
+        );
+
         if withdrawable_msats <= 0 {
             return Ok(None);
         }
 
+        let now = Utc::now();
+
         // Update the counter
         sqlx::query("UPDATE nfc_cards SET counter = ?, last_used_at = ? WHERE location_id = ?")
             .bind(new_counter)
-            .bind(Utc::now())
+            .bind(now)
             .bind(location_id)
             .execute(&mut *tx)
             .await?;
 
-        // Zero the balance
-        sqlx::query("UPDATE locations SET current_msats = 0 WHERE id = ?")
+        // Update last_withdraw_at (this resets the fill timer)
+        sqlx::query("UPDATE locations SET last_withdraw_at = ? WHERE id = ?")
+            .bind(now)
             .bind(location_id)
             .execute(&mut *tx)
             .await?;
+
+        // Record the scan (debits from pool for future calculations)
+        let scan_id = Uuid::new_v4().to_string();
+        sqlx::query(
+            "INSERT INTO scans (id, location_id, msats_withdrawn, scanned_at, user_id) VALUES (?, ?, ?, ?, NULL)"
+        )
+        .bind(&scan_id)
+        .bind(location_id)
+        .bind(withdrawable_msats)
+        .bind(now)
+        .execute(&mut *tx)
+        .await?;
 
         tx.commit().await?;
 
@@ -719,51 +718,6 @@ impl Database {
             .execute(&self.pool)
             .await
             .map_err(Into::into)
-    }
-
-    // Refill operations
-    pub async fn record_refill(
-        &self,
-        location_id: &str,
-        msats_added: i64,
-        balance_before_msats: i64,
-        balance_after_msats: i64,
-        base_rate_msats_per_min: i64,
-        slowdown_factor: f64,
-    ) -> Result<Refill> {
-        let id = Uuid::new_v4().to_string();
-
-        sqlx::query_as::<_, Refill>(
-            r#"
-            INSERT INTO refills (
-                id, location_id, msats_added, balance_before_msats, balance_after_msats,
-                base_rate_msats_per_min, slowdown_factor, refilled_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            RETURNING *
-            "#,
-        )
-        .bind(&id)
-        .bind(location_id)
-        .bind(msats_added)
-        .bind(balance_before_msats)
-        .bind(balance_after_msats)
-        .bind(base_rate_msats_per_min)
-        .bind(slowdown_factor)
-        .bind(Utc::now())
-        .fetch_one(&self.pool)
-        .await
-        .map_err(Into::into)
-    }
-
-    pub async fn get_refills_for_location(&self, location_id: &str) -> Result<Vec<Refill>> {
-        sqlx::query_as::<_, Refill>(
-            "SELECT * FROM refills WHERE location_id = ? ORDER BY refilled_at DESC LIMIT 100",
-        )
-        .bind(location_id)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(Into::into)
     }
 
     // ========================================================================
@@ -854,8 +808,9 @@ impl Database {
     /// This is the core operation for the custodial wallet system. It:
     /// 1. Verifies the NFC counter hasn't been used (replay protection)
     /// 2. Creates the anonymous user if they don't exist (lazy creation)
-    /// 3. Zeros the location balance
+    /// 3. Computes the available balance from time since last withdrawal
     /// 4. Records a collection transaction for the user
+    /// 5. Records a scan (which debits the pool for future calculations)
     ///
     /// Returns the collected amount in msats, or None if the counter was already used.
     pub async fn claim_collection(
@@ -863,6 +818,7 @@ impl Database {
         location_id: &str,
         user_id: &str,
         new_counter: i64,
+        balance_config: &BalanceConfig,
     ) -> Result<Option<i64>> {
         let mut tx = self.pool.begin().await?;
 
@@ -882,7 +838,7 @@ impl Database {
             return Ok(None);
         }
 
-        // Get the current balance (no fee deduction for custodial collection)
+        // Get the location
         let location: Option<Location> = sqlx::query_as("SELECT * FROM locations WHERE id = ?")
             .bind(location_id)
             .fetch_optional(&mut *tx)
@@ -893,7 +849,31 @@ impl Database {
             None => return Ok(None),
         };
 
-        let collected_msats = location.current_msats;
+        // Calculate pool balance within transaction
+        let donations: (i64,) = sqlx::query_as(
+            "SELECT COALESCE(SUM(amount_msats), 0) FROM donations WHERE location_id = ? AND status = 'received'",
+        )
+        .bind(location_id)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        let withdrawals: (i64,) = sqlx::query_as(
+            "SELECT COALESCE(SUM(msats_withdrawn), 0) FROM scans WHERE location_id = ?",
+        )
+        .bind(location_id)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        let pool_balance_msats = donations.0 - withdrawals.0;
+
+        // Compute the available balance
+        let collected_msats = compute_balance_msats(
+            pool_balance_msats,
+            location.last_withdraw_at,
+            location.created_at,
+            balance_config,
+        );
+
         if collected_msats <= 0 {
             return Ok(None);
         }
@@ -908,8 +888,8 @@ impl Database {
             .execute(&mut *tx)
             .await?;
 
-        // Zero the location balance
-        sqlx::query("UPDATE locations SET current_msats = 0, last_withdraw_at = ? WHERE id = ?")
+        // Update last_withdraw_at (this resets the fill timer)
+        sqlx::query("UPDATE locations SET last_withdraw_at = ? WHERE id = ?")
             .bind(now)
             .bind(location_id)
             .execute(&mut *tx)
@@ -945,7 +925,7 @@ impl Database {
         .execute(&mut *tx)
         .await?;
 
-        // Record the scan with user_id
+        // Record the scan with user_id (debits from pool for future calculations)
         let scan_id = Uuid::new_v4().to_string();
         sqlx::query(
             "INSERT INTO scans (id, location_id, msats_withdrawn, scanned_at, user_id) VALUES (?, ?, ?, ?, ?)"

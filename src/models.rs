@@ -222,28 +222,8 @@ impl Location {
         self.is_deactivated()
     }
 
-    /// Get the most recent activity time (max of last_refill_at and last_withdraw_at).
-    /// Used for calculating refill delta - we use the smaller delta (more recent activity).
-    pub fn last_activity_at(&self) -> DateTime<Utc> {
-        self.last_withdraw_at
-            .map(|withdraw_at| self.last_refill_at.max(withdraw_at))
-            .unwrap_or(self.last_refill_at)
-    }
-
-    /// Convert msats to sats for display purposes
-    pub fn current_sats(&self) -> i64 {
-        self.current_msats / 1000
-    }
-
-    /// Get the withdrawable amount in msats (same as current balance since withdrawals are internal)
-    pub fn withdrawable_msats(&self) -> i64 {
-        self.current_msats
-    }
-
-    /// Get the withdrawable amount in sats for display
-    pub fn withdrawable_sats(&self) -> i64 {
-        self.current_sats()
-    }
+    // Note: last_activity_at(), current_sats(), withdrawable_msats(), withdrawable_sats() removed
+    // Balance is now computed on-demand via balance::compute_balance_msats()
 }
 
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
@@ -439,39 +419,7 @@ pub struct NfcCard {
     pub last_used_at: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
-pub struct Refill {
-    pub id: String,
-    pub location_id: String,
-    pub msats_added: i64,
-    pub balance_before_msats: i64,
-    pub balance_after_msats: i64,
-    pub base_rate_msats_per_min: i64,
-    pub slowdown_factor: f64,
-    pub refilled_at: DateTime<Utc>,
-}
-
-impl Refill {
-    /// Get amount added in sats for display (with 3 decimal places for msat precision)
-    pub fn sats_added(&self) -> f64 {
-        self.msats_added as f64 / 1000.0
-    }
-
-    /// Get balance before in sats for display (with 3 decimal places for msat precision)
-    pub fn balance_before_sats(&self) -> f64 {
-        self.balance_before_msats as f64 / 1000.0
-    }
-
-    /// Get balance after in sats for display (with 3 decimal places for msat precision)
-    pub fn balance_after_sats(&self) -> f64 {
-        self.balance_after_msats as f64 / 1000.0
-    }
-
-    /// Get base rate in sats per minute for display (with 3 decimal places for msat precision)
-    pub fn base_rate_sats_per_min(&self) -> f64 {
-        self.base_rate_msats_per_min as f64 / 1000.0
-    }
-}
+// Note: Refill struct removed - balance is now computed on-demand from donations - scans
 
 /// Status of a pending withdrawal
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -555,7 +503,6 @@ impl PendingWithdrawal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Duration;
 
     fn make_test_location(current_msats: i64) -> Location {
         let now = Utc::now();
@@ -578,77 +525,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_withdrawable_msats_zero() {
-        let location = make_test_location(0);
-        assert_eq!(location.withdrawable_msats(), 0);
-    }
-
-    #[test]
-    fn test_withdrawable_msats_equals_current() {
-        // Withdrawable amount equals current balance (no fees for internal transactions)
-        let location = make_test_location(1000);
-        assert_eq!(location.withdrawable_msats(), 1000);
-    }
-
-    #[test]
-    fn test_withdrawable_msats_normal() {
-        let location = make_test_location(10000);
-        assert_eq!(location.withdrawable_msats(), 10000);
-    }
-
-    #[test]
-    fn test_withdrawable_msats_large() {
-        let location = make_test_location(1000000);
-        assert_eq!(location.withdrawable_msats(), 1000000);
-    }
-
-    #[test]
-    fn test_withdrawable_sats() {
-        let location = make_test_location(10000);
-        // 10000 msats = 10 sats
-        assert_eq!(location.withdrawable_sats(), 10);
-    }
-
-    #[test]
-    fn test_current_sats() {
-        let location = make_test_location(12345);
-        assert_eq!(location.current_sats(), 12);
-    }
-
-    #[test]
-    fn test_last_activity_at_no_withdraw() {
-        let now = Utc::now();
-        let mut location = make_test_location(1000);
-        location.last_refill_at = now;
-        location.last_withdraw_at = None;
-
-        assert_eq!(location.last_activity_at(), now);
-    }
-
-    #[test]
-    fn test_last_activity_at_withdraw_more_recent() {
-        let now = Utc::now();
-        let earlier = now - Duration::hours(1);
-
-        let mut location = make_test_location(1000);
-        location.last_refill_at = earlier;
-        location.last_withdraw_at = Some(now);
-
-        assert_eq!(location.last_activity_at(), now);
-    }
-
-    #[test]
-    fn test_last_activity_at_refill_more_recent() {
-        let now = Utc::now();
-        let earlier = now - Duration::hours(1);
-
-        let mut location = make_test_location(1000);
-        location.last_refill_at = now;
-        location.last_withdraw_at = Some(earlier);
-
-        assert_eq!(location.last_activity_at(), now);
-    }
+    // Note: tests for withdrawable_msats, withdrawable_sats, current_sats, last_activity_at removed
+    // Balance is now computed on-demand via compute_balance_msats()
 
     #[test]
     fn test_location_status_helpers() {
@@ -910,22 +788,5 @@ mod tests {
         assert_eq!(scan.sats_withdrawn(), 5);
     }
 
-    #[test]
-    fn test_refill_display_methods() {
-        let refill = Refill {
-            id: "refill-id".to_string(),
-            location_id: "loc-id".to_string(),
-            msats_added: 1500,
-            balance_before_msats: 5000,
-            balance_after_msats: 6500,
-            base_rate_msats_per_min: 100,
-            slowdown_factor: 0.95,
-            refilled_at: Utc::now(),
-        };
-
-        assert!((refill.sats_added() - 1.5).abs() < 0.001);
-        assert!((refill.balance_before_sats() - 5.0).abs() < 0.001);
-        assert!((refill.balance_after_sats() - 6.5).abs() < 0.001);
-        assert!((refill.base_rate_sats_per_min() - 0.1).abs() < 0.001);
-    }
+    // Note: test_refill_display_methods removed - Refill struct removed
 }

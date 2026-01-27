@@ -1,14 +1,16 @@
 use crate::models::{Location, User};
 use maud::{html, Markup};
 
-pub fn profile(_user: &User, locations: &[Location], max_sats_per_location: i64) -> Markup {
+/// Profile page showing user's locations with computed balances.
+/// location_balances is a slice of (location, available_sats, pool_sats)
+pub fn profile(_user: &User, location_balances: &[(&Location, i64, i64)]) -> Markup {
     html! {
         // Locations section
         div class="mb-8" {
                 div class="flex justify-between items-center mb-8" {
                     h1 class="text-4xl font-black text-primary" style="letter-spacing: -0.02em;" {
                         "MY LOCATIONS "
-                        span class="text-muted mono" { "[" (locations.len()) "]" }
+                        span class="text-muted mono" { "[" (location_balances.len()) "]" }
                     }
                     a href="/locations/new" class="btn-brutal-orange" {
                         i class="fa-solid fa-plus mr-2" {}
@@ -16,7 +18,7 @@ pub fn profile(_user: &User, locations: &[Location], max_sats_per_location: i64)
                     }
                 }
 
-                @if locations.is_empty() {
+                @if location_balances.is_empty() {
                     div class="card-brutal-inset text-center" style="padding: 3rem;" {
                         div class="text-6xl mb-6 text-muted" {
                             i class="fa-solid fa-location-dot" {}
@@ -31,8 +33,8 @@ pub fn profile(_user: &User, locations: &[Location], max_sats_per_location: i64)
                     }
                 } @else {
                     div class="space-y-4" {
-                        @for location in locations {
-                            (location_card(location, max_sats_per_location))
+                        @for (location, available_sats, pool_sats) in location_balances {
+                            (location_card(location, *available_sats, *pool_sats))
                         }
                     }
                 }
@@ -40,11 +42,11 @@ pub fn profile(_user: &User, locations: &[Location], max_sats_per_location: i64)
     }
 }
 
-fn location_card(location: &Location, max_sats_per_location: i64) -> Markup {
-    // Calculate percentage based on withdrawable amount (after fees)
-    let withdrawable_sats = location.withdrawable_sats();
-    let sats_percent = if max_sats_per_location > 0 {
-        (withdrawable_sats as f64 / max_sats_per_location as f64 * 100.0) as i32
+fn location_card(location: &Location, available_sats: i64, pool_sats: i64) -> Markup {
+    // Calculate percentage based on available vs max fill (10% of pool)
+    let max_fill_sats = (pool_sats as f64 * 0.1) as i64;
+    let sats_percent = if max_fill_sats > 0 {
+        ((available_sats as f64 / max_fill_sats as f64) * 100.0).min(100.0) as i32
     } else {
         0
     };
@@ -53,11 +55,11 @@ fn location_card(location: &Location, max_sats_per_location: i64) -> Markup {
         // Use orange border for inactive locations to draw attention
         @if location.is_active() {
             div class="card-brutal" {
-                (location_card_content(location, max_sats_per_location, withdrawable_sats, sats_percent))
+                (location_card_content(location, available_sats, pool_sats, sats_percent))
             }
         } @else {
             div class="card-brutal" style="border-color: var(--highlight);" {
-                (location_card_content(location, max_sats_per_location, withdrawable_sats, sats_percent))
+                (location_card_content(location, available_sats, pool_sats, sats_percent))
             }
         }
     }
@@ -65,8 +67,8 @@ fn location_card(location: &Location, max_sats_per_location: i64) -> Markup {
 
 fn location_card_content(
     location: &Location,
-    max_sats_per_location: i64,
-    withdrawable_sats: i64,
+    available_sats: i64,
+    pool_sats: i64,
     sats_percent: i32,
 ) -> Markup {
     html! {
@@ -122,7 +124,7 @@ fn location_card_content(
                     div class="flex justify-between items-center mb-3" {
                         div class="label-brutal" { "BALANCE" }
                         div class="text-muted text-xs mono" {
-                            (withdrawable_sats) " / " (max_sats_per_location) " SATS"
+                            (available_sats) " SATS (POOL: " (pool_sats) ")"
                         }
                     }
                     div class="progress-brutal" {

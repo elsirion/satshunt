@@ -170,10 +170,8 @@ async fn test_donation_pool_operations() {
         .unwrap();
     assert_eq!(balance, 150000);
 
-    // Record a debit (refill used pool)
-    db.record_location_pool_debit(&location.id, 30000)
-        .await
-        .unwrap();
+    // Record a withdrawal (scan debits from pool)
+    db.record_scan(&location.id, 30000, None).await.unwrap();
     let balance = db
         .get_location_donation_pool_balance(&location.id)
         .await
@@ -181,38 +179,7 @@ async fn test_donation_pool_operations() {
     assert_eq!(balance, 120000);
 }
 
-#[tokio::test]
-async fn test_update_location_msats() {
-    let (db, _temp) = setup_test_db().await;
-
-    let auth = AuthMethod::Password {
-        password_hash: "hash".to_string(),
-    };
-    let user = db
-        .create_user("owner".to_string(), None, auth)
-        .await
-        .unwrap();
-
-    let location = db
-        .create_location(
-            "Msat Test".to_string(),
-            0.0,
-            0.0,
-            None,
-            "secret".to_string(),
-            user.id,
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(location.current_msats, 0);
-
-    // Update msats
-    db.update_location_msats(&location.id, 50000).await.unwrap();
-
-    let updated = db.get_location(&location.id).await.unwrap().unwrap();
-    assert_eq!(updated.current_msats, 50000);
-}
+// Note: test_update_location_msats removed - balance is now computed from donations - scans
 
 #[tokio::test]
 async fn test_location_status_update() {
@@ -385,20 +352,24 @@ async fn test_get_stats() {
         .await
         .unwrap();
 
-    // Add msats and activate
-    db.update_location_msats(&loc1.id, 100000).await.unwrap();
-    db.update_location_msats(&loc2.id, 50000).await.unwrap();
+    // Activate locations
     db.update_location_status(&loc1.id, "active").await.unwrap();
     db.update_location_status(&loc2.id, "active").await.unwrap();
 
-    // Add to donation pool via donation
-    db.create_donation("lnbc200k1".to_string(), 200000, None)
+    // Add to location pools via donations (balance = donations - scans)
+    db.create_donation("lnbc100k1".to_string(), 100000, Some(&loc1.id))
         .await
         .unwrap();
-    db.mark_donation_received("lnbc200k1").await.unwrap();
+    db.mark_donation_received("lnbc100k1").await.unwrap();
+
+    db.create_donation("lnbc50k1".to_string(), 50000, Some(&loc2.id))
+        .await
+        .unwrap();
+    db.mark_donation_received("lnbc50k1").await.unwrap();
 
     let stats = db.get_stats().await.unwrap();
     assert_eq!(stats.total_locations, 2);
-    assert_eq!(stats.total_sats_available, 150); // 150000 msats = 150 sats
-    assert_eq!(stats.donation_pool_sats, 200); // 200000 msats = 200 sats
+    // Pool balance = 150000 msats = 150 sats (100k + 50k donations, no scans)
+    assert_eq!(stats.total_sats_available, 150);
+    assert_eq!(stats.donation_pool_sats, 150);
 }

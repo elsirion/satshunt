@@ -7,7 +7,7 @@ use axum::{
 use clap::Parser;
 use config::Config;
 use handlers::api::AppState;
-use satshunt::{auth::auth, config, db, donation, handlers, lightning, refill};
+use satshunt::{auth::auth, balance::BalanceConfig, config, db, donation, handlers, lightning};
 use std::sync::Arc;
 use tower_http::{services::ServeDir, trace::TraceLayer};
 use tower_sessions::SessionManagerLayer;
@@ -77,33 +77,23 @@ async fn main() -> Result<()> {
     // Derive withdraw secret from cookie secret (use first 32 bytes for HMAC-SHA256)
     let withdraw_secret = cookie_secret[..32].to_vec();
 
+    // Create balance config for computed balance calculations
+    let balance_config = BalanceConfig {
+        time_to_full_days: config.time_to_full_days,
+        max_fill_percentage: config.max_fill_percentage,
+    };
+
     // Create app state
     let app_state = Arc::new(AppState {
         db: (*db).clone(),
         lightning,
         upload_dir: uploads_dir.clone(),
         base_url: base_url.clone(),
-        max_sats_per_location: config.max_sats_per_location,
+        balance_config: balance_config.clone(),
         donation_sender,
         cookie_key,
         withdraw_secret,
     });
-
-    // Start refill service
-    let refill_service = Arc::new(refill::RefillService::new(
-        db.clone(),
-        refill::RefillConfig {
-            pool_percentage_per_minute: config.pool_percentage_per_minute,
-            check_interval_secs: config.refill_check_interval_secs,
-            max_sats_per_location: config.max_sats_per_location,
-        },
-    ));
-
-    tokio::spawn(async move {
-        refill_service.start().await;
-    });
-
-    tracing::info!("Refill service started");
 
     // Set up session store
     let session_store = SqliteStore::new(db.pool().clone());
@@ -154,7 +144,6 @@ async fn main() -> Result<()> {
             "/api/donate/wait/:invoice_and_amount",
             get(handlers::wait_for_donation),
         )
-        .route("/api/refill/trigger", post(handlers::manual_refill))
         // Custodial collection endpoint
         .route("/api/collect/:location_id", post(handlers::collect_sats))
         // Custodial wallet withdrawal endpoints
@@ -220,12 +209,9 @@ async fn main() -> Result<()> {
     tracing::info!("🚀 SatsHunt server listening on http://{}", addr);
     tracing::info!("📍 Base URL: {}", base_url);
     tracing::info!(
-        "⚙️  Refill formula: {}% of pool per minute divided by active locations",
-        config.pool_percentage_per_minute * 100.0
-    );
-    tracing::info!(
-        "⚙️  Max sats per location: {}",
-        config.max_sats_per_location
+        "⚙️  Balance config: {} days to full, {}% max fill",
+        balance_config.time_to_full_days,
+        balance_config.max_fill_percentage * 100.0
     );
 
     axum::serve(listener, app).await?;
