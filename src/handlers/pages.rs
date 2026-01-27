@@ -459,6 +459,7 @@ pub async fn withdraw_page(
     let db_user = state.db.get_user_by_id(&user.user_id).await.ok().flatten();
 
     let is_new_user = matches!(user.kind, UserKind::AnonNew);
+    let username = get_navbar_username(&user.kind);
 
     // Check if we have SUN parameters
     let (picc_data, cmac) = match (&params.p, &params.c) {
@@ -475,7 +476,7 @@ pub async fn withdraw_page(
                 is_new_user,
                 user: db_user.as_ref(),
             });
-            let page = templates::base("Collect Sats", content);
+            let page = templates::base_with_user("Collect Sats", content, username.as_deref(), user.role());
             return Ok(Html(page.into_string()).into_response());
         }
     };
@@ -558,7 +559,7 @@ pub async fn withdraw_page(
         is_new_user,
         user: db_user.as_ref(),
     });
-    let page = templates::base("Collect Sats", content);
+    let page = templates::base_with_user("Collect Sats", content, username.as_deref(), user.role());
 
     Ok(Html(page.into_string()).into_response())
 }
