@@ -546,54 +546,7 @@ pub async fn boltcard_keys(
     if let Some(uid) = &payload.uid {
         tracing::info!("Program action for UID: {}", uid);
 
-        if existing_card.is_some() {
-            // Card already exists - handle based on onExisting parameter
-            match on_existing {
-                Some("UpdateVersion") => {
-                    tracing::info!("Updating version for existing card");
-                    state
-                        .db
-                        .increment_nfc_card_version(&location.id)
-                        .await
-                        .map_err(|e| {
-                            tracing::error!("Failed to increment version: {}", e);
-                            StatusCode::INTERNAL_SERVER_ERROR
-                        })?;
-
-                    // Update UID and mark as programmed
-                    state
-                        .db
-                        .update_nfc_card_uid_and_mark_programmed(&location.id, uid)
-                        .await
-                        .map_err(|e| {
-                            tracing::error!("Failed to update UID: {}", e);
-                            StatusCode::INTERNAL_SERVER_ERROR
-                        })?;
-
-                    // Fetch updated card
-                    existing_card = state
-                        .db
-                        .get_nfc_card_by_location(&location.id)
-                        .await
-                        .map_err(|e| {
-                            tracing::error!("Failed to get updated NFC card: {}", e);
-                            StatusCode::INTERNAL_SERVER_ERROR
-                        })?;
-                }
-                _ => {
-                    tracing::info!("Card already exists, keeping version");
-                    // Just update the UID
-                    state
-                        .db
-                        .update_nfc_card_uid_and_mark_programmed(&location.id, uid)
-                        .await
-                        .map_err(|e| {
-                            tracing::error!("Failed to update UID: {}", e);
-                            StatusCode::INTERNAL_SERVER_ERROR
-                        })?;
-                }
-            }
-        } else {
+        if existing_card.is_none() {
             // Create new NFC card with generated keys
             tracing::info!("Creating new NFC card for location");
 
@@ -612,18 +565,39 @@ pub async fn boltcard_keys(
                     StatusCode::INTERNAL_SERVER_ERROR
                 })?;
 
-            // Update UID and mark as programmed
+            existing_card = Some(card);
+        } else {
+            // Card exists - reset counter for reprogramming
+            tracing::info!("Reprogramming existing card, resetting counter");
             state
                 .db
-                .update_nfc_card_uid_and_mark_programmed(&location.id, uid)
+                .reset_nfc_card_counter(&location.id)
                 .await
                 .map_err(|e| {
-                    tracing::error!("Failed to update UID: {}", e);
+                    tracing::error!("Failed to reset counter: {}", e);
                     StatusCode::INTERNAL_SERVER_ERROR
                 })?;
 
-            existing_card = Some(card);
+            // Fetch updated card
+            existing_card = state
+                .db
+                .get_nfc_card_by_location(&location.id)
+                .await
+                .map_err(|e| {
+                    tracing::error!("Failed to get NFC card: {}", e);
+                    StatusCode::INTERNAL_SERVER_ERROR
+                })?;
         }
+
+        // Update UID and mark as programmed
+        state
+            .db
+            .update_nfc_card_uid_and_mark_programmed(&location.id, uid)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to update UID: {}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
 
         // Mark location as programmed (but don't mark token as used yet - allow retries)
         state

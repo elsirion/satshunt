@@ -168,13 +168,11 @@ impl Database {
     }
 
     pub async fn get_location_by_write_token(&self, token: &str) -> Result<Option<Location>> {
-        sqlx::query_as::<_, Location>(
-            "SELECT * FROM locations WHERE write_token = ? AND status != 'active'",
-        )
-        .bind(token)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(Into::into)
+        sqlx::query_as::<_, Location>("SELECT * FROM locations WHERE write_token = ?")
+            .bind(token)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(Into::into)
     }
 
     #[allow(dead_code)]
@@ -631,6 +629,14 @@ impl Database {
 
     pub async fn increment_nfc_card_version(&self, location_id: &str) -> Result<SqliteQueryResult> {
         sqlx::query("UPDATE nfc_cards SET version = version + 1 WHERE location_id = ?")
+            .bind(location_id)
+            .execute(&self.pool)
+            .await
+            .map_err(Into::into)
+    }
+
+    pub async fn reset_nfc_card_counter(&self, location_id: &str) -> Result<SqliteQueryResult> {
+        sqlx::query("UPDATE nfc_cards SET counter = 0 WHERE location_id = ?")
             .bind(location_id)
             .execute(&self.pool)
             .await

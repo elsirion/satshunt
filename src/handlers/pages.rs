@@ -129,6 +129,9 @@ pub async fn location_detail_page(
         .await
         .unwrap_or_default();
 
+    // Get NFC card for wipe QR code (for owner/admin)
+    let nfc_card = state.db.get_nfc_card_by_location(&id).await.unwrap_or(None);
+
     let current_user_id = Some(user.user_id.as_str());
     let current_user_role = user.role();
     let username = get_navbar_username(&user.kind);
@@ -147,6 +150,7 @@ pub async fn location_detail_page(
         &state.base_url,
         donation_pool_msats / 1000,
         &donations,
+        nfc_card.as_ref(),
     );
     let page = templates::base_with_user(&location.name, content, username.as_deref(), user.role());
 

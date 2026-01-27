@@ -1,4 +1,4 @@
-use crate::models::{Donation, Location, Photo, Refill, Scan, UserRole};
+use crate::models::{Donation, Location, NfcCard, Photo, Refill, Scan, UserRole};
 use crate::templates::components::{
     donation_invoice_markup, donation_invoice_script, DonationInvoiceConfig,
 };
@@ -19,6 +19,7 @@ pub fn location_detail(
     base_url: &str,
     donation_pool_sats: i64,
     donations: &[Donation],
+    nfc_card: Option<&NfcCard>,
 ) -> Markup {
     let withdrawable_sats = location.withdrawable_sats();
     let sats_percent = if max_sats_per_location > 0 {
@@ -33,8 +34,8 @@ pub fn location_detail(
     let is_admin = current_user_role == UserRole::Admin;
     let can_manage_photos = is_owner && !location.is_active();
 
-    // Generate Boltcard deep link for NFC programming
-    let boltcard_deep_link = location.write_token.as_ref().map(|token| {
+    // Generate Boltcard deep links for NFC programming and reset
+    let boltcard_program_deep_link = location.write_token.as_ref().map(|token| {
         let keys_request_url = format!(
             "{}/api/boltcard/{}?onExisting=UpdateVersion",
             base_url, token
@@ -42,6 +43,7 @@ pub fn location_detail(
         let keys_request_url_encoded = urlencoding::encode(&keys_request_url);
         format!("boltcard://program?url={}", keys_request_url_encoded)
     });
+
 
     html! {
         div class="max-w-4xl mx-auto" {
@@ -116,7 +118,7 @@ pub fn location_detail(
                             }
 
                             // NFC Programming UI
-                            @if let Some(ref deep_link) = boltcard_deep_link {
+                            @if let Some(ref deep_link) = boltcard_program_deep_link {
                                 div class="p-4" style="background: var(--bg-secondary); border: 2px solid var(--accent-muted);" {
                                     p class="text-primary font-bold mb-3" {
                                         "Tap the button below with the "
@@ -597,6 +599,104 @@ pub fn location_detail(
                         updateRefillsTable();
                     </script>
                     "#, refills.len())))
+                }
+            }
+
+            // NFC Card Management (for owner/admin)
+            @if (is_owner || is_admin) && nfc_card.is_some() {
+                @let card = nfc_card.unwrap();
+                div class="card-brutal-inset mb-8" {
+                    h2 class="heading-breaker" {
+                        i class="fa-solid fa-microchip mr-2" {}
+                        "NFC CARD MANAGEMENT"
+                    }
+
+                    div class="mt-8 space-y-6" {
+                        // Wipe QR Code
+                        div class="p-4" style="background: var(--bg-secondary); border: 2px solid var(--accent-muted);" {
+                            div class="label-brutal text-xs mb-3" { "WIPE NFC CARD" }
+                            p class="text-sm text-muted font-bold mb-4" {
+                                "Scan this QR code with the Boltcard NFC Programmer app to wipe the NFC card."
+                            }
+                            div class="flex flex-col items-center gap-4" {
+                                div class="p-2" style="background: white; border: 3px solid var(--accent-muted);" {
+                                    canvas id="wipeQrCode" {}
+                                }
+                                button id="copyWipeJsonBtn" class="btn-brutal text-center" style="border-color: var(--accent-muted); color: var(--text-secondary);" {
+                                    i class="fa-solid fa-copy mr-2" {}
+                                    "COPY JSON"
+                                }
+                            }
+                        }
+
+                        // Reprogram button
+                        @if let Some(ref deep_link) = boltcard_program_deep_link {
+                            div class="p-4" style="background: var(--bg-secondary); border: 2px solid var(--accent-muted);" {
+                                div class="label-brutal text-xs mb-3" { "REPROGRAM NFC" }
+                                p class="text-sm text-muted font-bold mb-4" {
+                                    "Tap the button below with the Boltcard NFC Programmer app to reprogram the NFC card with new keys."
+                                }
+                                a href=(deep_link) class="btn-brutal-fill text-center inline-block" style="background: var(--highlight); border-color: var(--highlight);" {
+                                    i class="fa-solid fa-microchip mr-2" {}
+                                    "REPROGRAM NFC"
+                                }
+                            }
+                        }
+
+                        // Card info
+                        div class="p-4" style="background: var(--bg-secondary); border: 2px solid var(--accent-muted);" {
+                            div class="label-brutal text-xs mb-3" { "CARD INFO" }
+                            div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm mono" {
+                                div {
+                                    span class="text-muted font-bold" { "UID: " }
+                                    span class="text-secondary font-bold" { (card.uid.as_deref().unwrap_or("Not set")) }
+                                }
+                                div {
+                                    span class="text-muted font-bold" { "Counter: " }
+                                    span class="text-secondary font-bold" { (card.counter) }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Wipe QR Code script
+                @if let Some(ref uid) = card.uid {
+                    (PreEscaped(format!(r#"
+                    <script src="https://cdn.jsdelivr.net/npm/qrious@4.0.2/dist/qrious.min.js"></script>
+                    <script>
+                        const wipeJson = JSON.stringify({{
+                            "action": "wipe",
+                            "k0": "{}",
+                            "k1": "{}",
+                            "k2": "{}",
+                            "k3": "{}",
+                            "k4": "{}",
+                            "uid": "{}",
+                            "version": 1
+                        }});
+
+                        new QRious({{
+                            element: document.getElementById('wipeQrCode'),
+                            value: wipeJson,
+                            size: 200,
+                            background: '#ffffff',
+                            foreground: '#000000'
+                        }});
+
+                        document.getElementById('copyWipeJsonBtn').addEventListener('click', async function() {{
+                            try {{
+                                await navigator.clipboard.writeText(wipeJson);
+                                const btn = this;
+                                const originalHtml = btn.innerHTML;
+                                btn.innerHTML = '<i class="fa-solid fa-check mr-2"></i>COPIED!';
+                                setTimeout(() => btn.innerHTML = originalHtml, 2000);
+                            }} catch (err) {{
+                                alert('Failed to copy to clipboard');
+                            }}
+                        }});
+                    </script>
+                    "#, card.k0_auth_key, card.k1_decrypt_key, card.k2_cmac_key, card.k3, card.k4, uid)))
                 }
             }
 
