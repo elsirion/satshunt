@@ -1,3 +1,4 @@
+use super::format_sats_si;
 use crate::models::Stats;
 use maud::{html, Markup};
 
@@ -35,7 +36,7 @@ pub fn home(stats: &Stats) -> Markup {
             ))
             (stat_card(
                 "Sats Available",
-                &format!("{}", stats.total_sats_available),
+                &format_sats_si(stats.total_sats_available),
                 true,
                 "fa-bolt"
             ))
@@ -126,5 +127,35 @@ fn step(number: &str, title: &str, description: &str) -> Markup {
             h3 class="text-lg font-black mb-2" { (title) }
             p class="text-secondary text-sm font-bold" { (description) }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_format_sats_si() {
+        // Zero and negative
+        assert_eq!(format_sats_si(0), "0");
+        assert_eq!(format_sats_si(-100), "0");
+
+        // Small values (no suffix)
+        assert_eq!(format_sats_si(1), "1");
+        assert_eq!(format_sats_si(999), "999");
+
+        // Thousands (k suffix) - 3 significant figures
+        assert_eq!(format_sats_si(1000), "1.00k");
+        assert_eq!(format_sats_si(2310), "2.31k");
+        assert_eq!(format_sats_si(21400), "21.4k");
+        assert_eq!(format_sats_si(256000), "256k");
+        assert_eq!(format_sats_si(999_499), "999k");
+        assert_eq!(format_sats_si(999_500), "1.00M");
+
+        // Millions (M suffix) - 3 significant figures
+        assert_eq!(format_sats_si(1_000_000), "1.00M");
+        assert_eq!(format_sats_si(1_230_000), "1.23M");
+        assert_eq!(format_sats_si(21_000_000), "21.0M");
+        assert_eq!(format_sats_si(123_000_000), "123M");
     }
 }

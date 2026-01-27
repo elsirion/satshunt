@@ -1,3 +1,4 @@
+use super::format_sats_si;
 use crate::models::Donation;
 use crate::templates::components::{
     donation_invoice_markup, donation_invoice_script, DonationInvoiceConfig,
@@ -40,7 +41,7 @@ pub fn donate(
             div class="text-center mt-8" {
                 div class="stat-brutal" {
                     div class="stat-value orange" {
-                        (pool_balance_sats) " "
+                        (format_sats_si(pool_balance_sats)) " "
                         i class="fa-solid fa-bolt" {}
                     }
                     div class="stat-label" { "sats split across " (num_locations) " locations" }
@@ -96,7 +97,7 @@ pub fn donate(
                                         }
                                     }
                                     td class="py-2 px-3 text-right font-bold text-highlight orange" {
-                                        (donation.amount_sats()) " "
+                                        (format_sats_si(donation.amount_sats())) " "
                                         i class="fa-solid fa-bolt" {}
                                     }
                                 }

@@ -1,3 +1,4 @@
+use super::format_sats_si;
 use crate::models::{Donation, Location, NfcCard, Photo, ScanWithUser, UserRole};
 use crate::templates::components::{
     donation_invoice_markup, donation_invoice_script, DonationInvoiceConfig,
@@ -243,14 +244,14 @@ pub fn location_detail(
                     div class="card-brutal-inset p-4" {
                         div class="label-brutal text-xs mb-2" { "AVAILABLE SATS" }
                         div class="text-2xl font-black text-highlight orange" {
-                            (available_sats) " "
+                            (format_sats_si(available_sats)) " "
                             i class="fa-solid fa-bolt" {}
                         }
                     }
                     div class="card-brutal-inset p-4" {
                         div class="label-brutal text-xs mb-2" { "POOL BALANCE" }
                         div class="text-2xl font-black text-secondary" {
-                            (pool_sats) " "
+                            (format_sats_si(pool_sats)) " "
                             i class="fa-solid fa-bolt" {}
                         }
                     }
@@ -361,7 +362,7 @@ pub fn location_detail(
                         div {
                             div class="label-brutal text-xs mb-1" { "POOL BALANCE" }
                             div class="text-3xl font-black text-highlight orange" {
-                                (pool_sats) " "
+                                (format_sats_si(pool_sats)) " "
                                 i class="fa-solid fa-bolt" {}
                             }
                         }
@@ -431,7 +432,7 @@ pub fn location_detail(
                                             }
                                             td class="py-3 px-4 text-right mono" {
                                                 span class="text-highlight orange font-black" {
-                                                    (donation.amount_sats())
+                                                    (format_sats_si(donation.amount_sats()))
                                                 }
                                                 " "
                                                 i class="fa-solid fa-bolt text-highlight orange" {}
@@ -475,7 +476,7 @@ pub fn location_detail(
                                         td class="py-3 px-4 text-right" {
                                             @if scan.is_claimed() {
                                                 span class="text-highlight orange font-black" {
-                                                    (scan.sats_claimed())
+                                                    (format_sats_si(scan.sats_claimed()))
                                                     " "
                                                     i class="fa-solid fa-bolt" {}
                                                 }
@@ -623,7 +624,7 @@ pub fn location_detail(
         "#,
             location.longitude, location.latitude,
             location.longitude, location.latitude,
-            location.name, available_sats
+            location.name, format_sats_si(available_sats)
         )))
 
         // Photo upload script - auto-upload on file selection

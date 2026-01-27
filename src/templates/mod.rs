@@ -14,6 +14,33 @@ pub mod register;
 pub mod wallet;
 pub mod withdraw;
 
+/// Format sats with SI prefixes (k, M) and 3 significant figures
+pub fn format_sats_si(sats: i64) -> String {
+    if sats <= 0 {
+        return "0".to_string();
+    }
+    let sats = sats as f64;
+
+    let (val, suffix) = if sats >= 1_000_000.0 {
+        (sats / 1_000_000.0, "M")
+    } else if sats >= 1_000.0 {
+        (sats / 1_000.0, "k")
+    } else {
+        return (sats as u64).to_string();
+    };
+
+    // Round to 3 significant figures
+    let decimals = if val >= 100.0 { 0 } else if val >= 10.0 { 1 } else { 2 };
+    let formatted = format!("{:.decimals$}{suffix}", val);
+
+    // Handle rounding up to next unit (e.g., 999.9k -> 1000k should be 1M)
+    if formatted.starts_with("1000") && suffix == "k" {
+        "1.00M".to_string()
+    } else {
+        formatted
+    }
+}
+
 pub use admin_locations::admin_locations;
 pub use admin_users::admin_users;
 pub use collect::{collect, CollectParams};
