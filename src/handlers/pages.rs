@@ -125,10 +125,14 @@ pub async fn location_detail_page(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    let scans = state.db.get_scans_for_location(&id).await.map_err(|e| {
-        tracing::error!("Failed to get scans: {}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let scans = state
+        .db
+        .get_scans_with_user_for_location(&id)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to get scans: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     // Get location's donation pool balance and donation history
     let pool_msats = state
@@ -521,13 +525,17 @@ pub async fn withdraw_page(
                 location: &location,
                 available_sats,
                 current_balance_sats: user_balance_sats,
-                picc_data: "",
-                cmac: "",
+                scan_id: None,
                 error: Some("Invalid NFC scan. Please scan the sticker again."),
                 is_new_user,
                 user: db_user.as_ref(),
             });
-            let page = templates::base_with_user("Collect Sats", content, username.as_deref(), user.role());
+            let page = templates::base_with_user(
+                "Collect Sats",
+                content,
+                username.as_deref(),
+                user.role(),
+            );
             return Ok(Html(page.into_string()).into_response());
         }
     };
@@ -576,43 +584,130 @@ pub async fn withdraw_page(
         }
     }
 
-    // For active locations, show the collection page
-    let error_message = match verification {
-        Ok(_) => None,
+    // For active locations, record the scan and show the claim page
+    match verification {
+        Ok(v) => {
+            // Record the scan (updates counter atomically)
+            match state
+                .db
+                .record_nfc_scan(&location_id, &user.user_id, v.counter as i64)
+                .await
+            {
+                Ok(Some(scan)) => {
+                    // Success - show claim page with scan info
+                    let content = templates::collect(templates::CollectParams {
+                        location: &location,
+                        available_sats,
+                        current_balance_sats: user_balance_sats,
+                        scan_id: Some(&scan.id),
+                        error: params.error.as_deref(),
+                        is_new_user,
+                        user: db_user.as_ref(),
+                    });
+                    let page = templates::base_with_user(
+                        "Collect Sats",
+                        content,
+                        username.as_deref(),
+                        user.role(),
+                    );
+                    Ok(Html(page.into_string()).into_response())
+                }
+                Ok(None) => {
+                    // Counter already used (race condition or replay)
+                    let content = templates::collect(templates::CollectParams {
+                        location: &location,
+                        available_sats,
+                        current_balance_sats: user_balance_sats,
+                        scan_id: None,
+                        error: Some(
+                            "This scan has already been used. Please scan the sticker again.",
+                        ),
+                        is_new_user,
+                        user: db_user.as_ref(),
+                    });
+                    let page = templates::base_with_user(
+                        "Collect Sats",
+                        content,
+                        username.as_deref(),
+                        user.role(),
+                    );
+                    Ok(Html(page.into_string()).into_response())
+                }
+                Err(e) => {
+                    tracing::error!("Failed to record scan: {}", e);
+                    Err(StatusCode::INTERNAL_SERVER_ERROR)
+                }
+            }
+        }
         Err(ntag424::SunError::ReplayDetected { .. }) => {
-            Some("This scan has already been used. Please scan the sticker again.")
-        }
-        Err(ntag424::SunError::CmacMismatch) => {
-            Some("Invalid NFC scan. Please scan the sticker again.")
-        }
-        Err(ntag424::SunError::UidMismatch { .. }) => {
-            Some("Invalid NFC card. This card is not associated with this location.")
-        }
-        Err(ntag424::SunError::CardNotFound) | Err(ntag424::SunError::CardNotProgrammed) => {
-            Some("NFC card not configured. Please contact the location owner.")
+            // Check if user has an existing valid scan they can still claim
+            let existing_scan = state
+                .db
+                .get_last_scan_for_location(&location_id)
+                .await
+                .ok()
+                .flatten();
+            let (scan_id, error) = match existing_scan {
+                Some(scan) if scan.user_id == user.user_id && scan.is_claimable() => {
+                    // User's own recent scan - they can still claim
+                    (Some(scan.id), None)
+                }
+                _ => (
+                    None,
+                    Some("This scan has already been used. Please scan the sticker again."),
+                ),
+            };
+            let content = templates::collect(templates::CollectParams {
+                location: &location,
+                available_sats,
+                current_balance_sats: user_balance_sats,
+                scan_id: scan_id.as_deref(),
+                error,
+                is_new_user,
+                user: db_user.as_ref(),
+            });
+            let page = templates::base_with_user(
+                "Collect Sats",
+                content,
+                username.as_deref(),
+                user.role(),
+            );
+            Ok(Html(page.into_string()).into_response())
         }
         Err(e) => {
-            tracing::error!("SUN verification error: {}", e);
-            Some("Verification failed. Please try scanning again.")
+            let error_message = match e {
+                ntag424::SunError::CmacMismatch => {
+                    "Invalid NFC scan. Please scan the sticker again."
+                }
+                ntag424::SunError::UidMismatch { .. } => {
+                    "Invalid NFC card. This card is not associated with this location."
+                }
+                ntag424::SunError::CardNotFound | ntag424::SunError::CardNotProgrammed => {
+                    "NFC card not configured. Please contact the location owner."
+                }
+                _ => {
+                    tracing::error!("SUN verification error: {}", e);
+                    "Verification failed. Please try scanning again."
+                }
+            };
+            let content = templates::collect(templates::CollectParams {
+                location: &location,
+                available_sats,
+                current_balance_sats: user_balance_sats,
+                scan_id: None,
+                error: Some(error_message),
+                is_new_user,
+                user: db_user.as_ref(),
+            });
+            let page = templates::base_with_user(
+                "Collect Sats",
+                content,
+                username.as_deref(),
+                user.role(),
+            );
+            Ok(Html(page.into_string()).into_response())
         }
-    };
-
-    // Combine with any error from query params
-    let error = params.error.as_deref().or(error_message);
-
-    let content = templates::collect(templates::CollectParams {
-        location: &location,
-        available_sats,
-        current_balance_sats: user_balance_sats,
-        picc_data: &picc_data,
-        cmac: &cmac,
-        error,
-        is_new_user,
-        user: db_user.as_ref(),
-    });
-    let page = templates::base_with_user("Collect Sats", content, username.as_deref(), user.role());
-
-    Ok(Html(page.into_string()).into_response())
+    }
 }
 
 /// Query parameters for wallet page

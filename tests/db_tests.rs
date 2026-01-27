@@ -171,7 +171,7 @@ async fn test_donation_pool_operations() {
     assert_eq!(balance, 150000);
 
     // Record a withdrawal (scan debits from pool)
-    db.record_scan(&location.id, 30000, None).await.unwrap();
+    db.record_claim(&location.id, 30000, None).await.unwrap();
     let balance = db
         .get_location_donation_pool_balance(&location.id)
         .await
@@ -285,7 +285,7 @@ async fn test_list_active_locations() {
 }
 
 #[tokio::test]
-async fn test_record_scan() {
+async fn test_record_claim() {
     let (db, _temp) = setup_test_db().await;
 
     let auth = AuthMethod::Password {
@@ -309,7 +309,7 @@ async fn test_record_scan() {
         .unwrap();
 
     // Record a scan
-    db.record_scan(&location.id, 10000, None).await.unwrap();
+    db.record_claim(&location.id, 10000, None).await.unwrap();
 
     // Get stats to verify
     let stats = db.get_stats().await.unwrap();

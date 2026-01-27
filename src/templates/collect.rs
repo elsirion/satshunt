@@ -6,8 +6,8 @@ pub struct CollectParams<'a> {
     pub location: &'a Location,
     pub available_sats: i64,
     pub current_balance_sats: i64,
-    pub picc_data: &'a str,
-    pub cmac: &'a str,
+    /// The scan ID for claiming (None if scan failed/expired)
+    pub scan_id: Option<&'a str>,
     pub error: Option<&'a str>,
     pub is_new_user: bool,
     pub user: Option<&'a User>,
@@ -21,12 +21,15 @@ pub fn collect(params: CollectParams<'_>) -> Markup {
         location,
         available_sats,
         current_balance_sats,
-        picc_data,
-        cmac,
+        scan_id,
         error,
         is_new_user,
         user,
     } = params;
+
+    // Can only claim if we have a valid scan_id
+    let can_claim = scan_id.is_some() && available_sats > 0;
+
     html! {
         div class="max-w-2xl mx-auto" {
             // Back button
@@ -72,6 +75,16 @@ pub fn collect(params: CollectParams<'_>) -> Markup {
                         "Check back later - locations refill automatically!"
                     }
                 }
+            } @else if !can_claim {
+                // Has sats but no valid scan
+                div class="card-brutal-inset p-6 text-center mb-6" {
+                    p class="text-xl font-bold text-muted" {
+                        "Scan the NFC sticker to collect sats."
+                    }
+                    p class="text-sm text-muted mt-2" {
+                        "Hold your phone near the sticker to scan."
+                    }
+                }
             } @else {
                 // Collection card
                 div class="card-brutal mb-6" {
@@ -86,7 +99,7 @@ pub fn collect(params: CollectParams<'_>) -> Markup {
                         }
 
                         // Collect button
-                        button id="collect-btn" onclick="collectSats()"
+                        button id="collect-btn" onclick="claimSats()"
                             class="btn-brutal-fill w-full text-xl py-4" style="background: var(--highlight); border-color: var(--highlight);" {
                             i class="fa-solid fa-bolt mr-3" {}
                             "COLLECT " (available_sats) " SATS"
@@ -175,57 +188,57 @@ pub fn collect(params: CollectParams<'_>) -> Markup {
         </script>
         "#, location.longitude, location.latitude, location.longitude, location.latitude)))
 
-        // Collection JavaScript
-        (PreEscaped(format!(r#"
-        <script>
-            const locationId = "{}";
-            const piccData = "{}";
-            const cmac = "{}";
+        // Claim JavaScript (only if we have a scan_id)
+        @if let Some(sid) = scan_id {
+            (PreEscaped(format!(r#"
+            <script>
+                const scanId = "{}";
 
-            function showProcessing() {{
-                document.getElementById('collect-btn').classList.add('hidden');
-                document.getElementById('processing-state').classList.remove('hidden');
-                document.getElementById('collect-error').classList.add('hidden');
-            }}
-
-            function hideProcessing() {{
-                document.getElementById('processing-state').classList.add('hidden');
-                document.getElementById('collect-btn').classList.remove('hidden');
-            }}
-
-            function showError(message) {{
-                hideProcessing();
-                document.getElementById('collect-error-message').textContent = message;
-                document.getElementById('collect-error').classList.remove('hidden');
-            }}
-
-            async function collectSats() {{
-                showProcessing();
-
-                try {{
-                    const response = await fetch(
-                        `/api/collect/${{locationId}}?p=${{encodeURIComponent(piccData)}}&c=${{encodeURIComponent(cmac)}}`,
-                        {{ method: 'POST' }}
-                    );
-
-                    const result = await response.json();
-
-                    if (result.success) {{
-                        // Store user_id in localStorage as backup
-                        if (result.user_id) {{
-                            localStorage.setItem('satshunt_uid', result.user_id);
-                        }}
-                        // Redirect to wallet with success message
-                        window.location.href = `/wallet?success=collected&amount=${{result.collected_sats}}&location=${{encodeURIComponent(result.location_name)}}`;
-                    }} else {{
-                        showError(result.error || 'Collection failed. Please try again.');
-                    }}
-                }} catch (err) {{
-                    console.error('Collection error:', err);
-                    showError('Request failed. Please check your connection and try again.');
+                function showProcessing() {{
+                    document.getElementById('collect-btn').classList.add('hidden');
+                    document.getElementById('processing-state').classList.remove('hidden');
+                    document.getElementById('collect-error').classList.add('hidden');
                 }}
-            }}
-        </script>
-        "#, location.id, picc_data, cmac)))
+
+                function hideProcessing() {{
+                    document.getElementById('processing-state').classList.add('hidden');
+                    document.getElementById('collect-btn').classList.remove('hidden');
+                }}
+
+                function showError(message) {{
+                    hideProcessing();
+                    document.getElementById('collect-error-message').textContent = message;
+                    document.getElementById('collect-error').classList.remove('hidden');
+                }}
+
+                async function claimSats() {{
+                    showProcessing();
+
+                    try {{
+                        const response = await fetch(
+                            `/api/claim/${{scanId}}`,
+                            {{ method: 'POST' }}
+                        );
+
+                        const result = await response.json();
+
+                        if (result.success) {{
+                            // Store user_id in localStorage as backup
+                            if (result.user_id) {{
+                                localStorage.setItem('satshunt_uid', result.user_id);
+                            }}
+                            // Redirect to wallet with success message
+                            window.location.href = `/wallet?success=collected&amount=${{result.collected_sats}}&location=${{encodeURIComponent(result.location_name || 'this location')}}`;
+                        }} else {{
+                            showError(result.error || 'Collection failed. Please try again.');
+                        }}
+                    }} catch (err) {{
+                        console.error('Claim error:', err);
+                        showError('Request failed. Please check your connection and try again.');
+                    }}
+                }}
+            </script>
+            "#, sid)))
+        }
     }
 }

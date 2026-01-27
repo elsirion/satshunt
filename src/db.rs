@@ -1,7 +1,7 @@
 use crate::balance::{compute_balance_msats, BalanceConfig};
 use crate::models::{
-    AuthMethod, Donation, Location, NfcCard, Photo, Scan, Stats, User, UserRole, UserTransaction,
-    WithdrawalStatus,
+    AuthMethod, Claim, ClaimResult, Donation, Location, NfcCard, NfcScan, Photo, ScanWithUser,
+    Stats, User, UserRole, UserTransaction, WithdrawalStatus,
 };
 use anyhow::Result;
 use chrono::Utc;
@@ -212,7 +212,6 @@ impl Database {
         .map_err(Into::into)
     }
 
-
     pub async fn update_location_status(
         &self,
         id: &str,
@@ -382,7 +381,7 @@ impl Database {
     }
 
     /// Get the balance of a location's donation pool
-    /// (sum of received location donations minus withdrawals/scans)
+    /// (sum of received location donations minus claims)
     pub async fn get_location_donation_pool_balance(&self, location_id: &str) -> Result<i64> {
         // Sum of received donations for this location
         let donations: (i64,) = sqlx::query_as(
@@ -392,15 +391,15 @@ impl Database {
         .fetch_one(&self.pool)
         .await?;
 
-        // Sum of withdrawals (scans) from this location
-        let withdrawals: (i64,) = sqlx::query_as(
-            "SELECT COALESCE(SUM(msats_withdrawn), 0) FROM scans WHERE location_id = ?",
+        // Sum of claims from this location
+        let claims: (i64,) = sqlx::query_as(
+            "SELECT COALESCE(SUM(msats_claimed), 0) FROM claims WHERE location_id = ?",
         )
         .bind(location_id)
         .fetch_one(&self.pool)
         .await?;
 
-        Ok(donations.0 - withdrawals.0)
+        Ok(donations.0 - claims.0)
     }
 
     /// List all received donations for a location (for display on location page)
@@ -440,13 +439,13 @@ impl Database {
         .map_err(Into::into)
     }
 
-    // Scan operations
-    pub async fn record_scan(
+    // Claim operations (formerly scan operations)
+    pub async fn record_claim(
         &self,
         location_id: &str,
-        msats_withdrawn: i64,
+        msats_claimed: i64,
         user_id: Option<&str>,
-    ) -> Result<Scan> {
+    ) -> Result<Claim> {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now();
 
@@ -457,12 +456,12 @@ impl Database {
             .execute(&self.pool)
             .await?;
 
-        sqlx::query_as::<_, Scan>(
-            "INSERT INTO scans (id, location_id, msats_withdrawn, scanned_at, user_id) VALUES (?, ?, ?, ?, ?) RETURNING *"
+        sqlx::query_as::<_, Claim>(
+            "INSERT INTO claims (id, location_id, msats_claimed, claimed_at, user_id) VALUES (?, ?, ?, ?, ?) RETURNING *"
         )
         .bind(&id)
         .bind(location_id)
-        .bind(msats_withdrawn)
+        .bind(msats_claimed)
         .bind(now)
         .bind(user_id)
         .fetch_one(&self.pool)
@@ -470,14 +469,266 @@ impl Database {
         .map_err(Into::into)
     }
 
-    pub async fn get_scans_for_location(&self, location_id: &str) -> Result<Vec<Scan>> {
-        sqlx::query_as::<_, Scan>(
-            "SELECT * FROM scans WHERE location_id = ? ORDER BY scanned_at DESC",
+    pub async fn get_claims_for_location(&self, location_id: &str) -> Result<Vec<Claim>> {
+        sqlx::query_as::<_, Claim>(
+            "SELECT * FROM claims WHERE location_id = ? ORDER BY claimed_at DESC",
         )
         .bind(location_id)
         .fetch_all(&self.pool)
         .await
         .map_err(Into::into)
+    }
+
+    // NFC Scan operations (recording validated NFC taps before claiming)
+
+    /// Record a validated NFC scan (updates counter atomically)
+    /// Returns the scan record, or None if counter already used
+    pub async fn record_nfc_scan(
+        &self,
+        location_id: &str,
+        user_id: &str,
+        new_counter: i64,
+    ) -> Result<Option<NfcScan>> {
+        let mut tx = self.pool.begin().await?;
+
+        // Verify counter is unused
+        let card: Option<NfcCard> = sqlx::query_as("SELECT * FROM nfc_cards WHERE location_id = ?")
+            .bind(location_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+
+        let card = match card {
+            Some(c) => c,
+            None => return Ok(None),
+        };
+
+        if new_counter <= card.counter {
+            return Ok(None); // Counter already used (replay)
+        }
+
+        let now = Utc::now();
+
+        // Update the counter
+        sqlx::query("UPDATE nfc_cards SET counter = ?, last_used_at = ? WHERE location_id = ?")
+            .bind(new_counter)
+            .bind(now)
+            .bind(location_id)
+            .execute(&mut *tx)
+            .await?;
+
+        // Record the scan
+        let scan_id = Uuid::new_v4().to_string();
+        sqlx::query(
+            "INSERT INTO scans (id, location_id, user_id, counter, scanned_at) VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(&scan_id)
+        .bind(location_id)
+        .bind(user_id)
+        .bind(new_counter)
+        .bind(now)
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+
+        // Fetch the scan we just created
+        let scan = sqlx::query_as::<_, NfcScan>("SELECT * FROM scans WHERE id = ?")
+            .bind(&scan_id)
+            .fetch_one(&self.pool)
+            .await?;
+
+        Ok(Some(scan))
+    }
+
+    /// Get the last scan for a location (most recent by scanned_at)
+    pub async fn get_last_scan_for_location(&self, location_id: &str) -> Result<Option<NfcScan>> {
+        sqlx::query_as::<_, NfcScan>(
+            "SELECT * FROM scans WHERE location_id = ? ORDER BY scanned_at DESC LIMIT 1",
+        )
+        .bind(location_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(Into::into)
+    }
+
+    /// Get all scans for a location with user display info
+    pub async fn get_scans_with_user_for_location(
+        &self,
+        location_id: &str,
+    ) -> Result<Vec<ScanWithUser>> {
+        sqlx::query_as::<_, ScanWithUser>(
+            r#"
+            SELECT
+                s.id,
+                s.location_id,
+                s.user_id,
+                s.scanned_at,
+                s.claimed_at,
+                u.username,
+                c.msats_claimed,
+                (s.scanned_at = (SELECT MAX(scanned_at) FROM scans WHERE location_id = s.location_id)) AS is_latest
+            FROM scans s
+            LEFT JOIN users u ON s.user_id = u.id
+            LEFT JOIN claims c ON s.claim_id = c.id
+            WHERE s.location_id = ?
+            ORDER BY s.scanned_at DESC
+            "#,
+        )
+        .bind(location_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(Into::into)
+    }
+
+    /// Claim sats from a previous scan
+    /// Returns ClaimResult indicating success or reason for failure
+    pub async fn claim_from_scan(
+        &self,
+        scan_id: &str,
+        user_id: &str,
+        balance_config: &BalanceConfig,
+    ) -> Result<ClaimResult> {
+        let mut tx = self.pool.begin().await?;
+
+        // Get the scan
+        let scan: Option<NfcScan> = sqlx::query_as("SELECT * FROM scans WHERE id = ?")
+            .bind(scan_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+
+        let scan = match scan {
+            Some(s) => s,
+            None => return Ok(ClaimResult::ScanNotFound),
+        };
+
+        // Verify user is the scanner
+        if scan.user_id != user_id {
+            return Ok(ClaimResult::NotYourScan);
+        }
+
+        // Check if already claimed
+        if scan.claimed_at.is_some() {
+            return Ok(ClaimResult::AlreadyClaimed);
+        }
+
+        // Check if expired (1 hour)
+        let age = Utc::now().signed_duration_since(scan.scanned_at);
+        if age.num_hours() >= 1 {
+            return Ok(ClaimResult::Expired);
+        }
+
+        // Verify this is still the last scan for the location
+        let last_scan: Option<NfcScan> = sqlx::query_as(
+            "SELECT * FROM scans WHERE location_id = ? ORDER BY scanned_at DESC LIMIT 1",
+        )
+        .bind(&scan.location_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        if last_scan.map(|s| s.id) != Some(scan.id.clone()) {
+            return Ok(ClaimResult::NotLastScanner);
+        }
+
+        // Get location and compute balance
+        let location: Location = sqlx::query_as("SELECT * FROM locations WHERE id = ?")
+            .bind(&scan.location_id)
+            .fetch_one(&mut *tx)
+            .await?;
+
+        // Calculate pool balance
+        let donations: (i64,) = sqlx::query_as(
+            "SELECT COALESCE(SUM(amount_msats), 0) FROM donations WHERE location_id = ? AND status = 'received'",
+        )
+        .bind(&scan.location_id)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        let claimed: (i64,) = sqlx::query_as(
+            "SELECT COALESCE(SUM(msats_claimed), 0) FROM claims WHERE location_id = ?",
+        )
+        .bind(&scan.location_id)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        let pool_balance_msats = donations.0 - claimed.0;
+
+        let claimable_msats = compute_balance_msats(
+            pool_balance_msats,
+            location.last_withdraw_at,
+            location.created_at,
+            balance_config,
+        );
+
+        if claimable_msats <= 0 {
+            return Ok(ClaimResult::NoBalance);
+        }
+
+        let now = Utc::now();
+
+        // Ensure user exists (lazy creation)
+        let user_exists: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE id = ?)")
+                .bind(user_id)
+                .fetch_one(&mut *tx)
+                .await?;
+
+        if !user_exists {
+            sqlx::query(
+                "INSERT INTO users (id, username, email, auth_method, auth_data, created_at, role) VALUES (?, NULL, NULL, 'anonymous', '{}', ?, 'user')"
+            )
+            .bind(user_id)
+            .bind(now)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        // Create claim record
+        let claim_id = Uuid::new_v4().to_string();
+        sqlx::query(
+            "INSERT INTO claims (id, location_id, msats_claimed, claimed_at, user_id) VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(&claim_id)
+        .bind(&scan.location_id)
+        .bind(claimable_msats)
+        .bind(now)
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+
+        // Update scan as claimed
+        sqlx::query("UPDATE scans SET claimed_at = ?, claim_id = ? WHERE id = ?")
+            .bind(now)
+            .bind(&claim_id)
+            .bind(scan_id)
+            .execute(&mut *tx)
+            .await?;
+
+        // Update location's last_withdraw_at
+        sqlx::query("UPDATE locations SET last_withdraw_at = ? WHERE id = ?")
+            .bind(now)
+            .bind(&scan.location_id)
+            .execute(&mut *tx)
+            .await?;
+
+        // Create user transaction for custodial wallet
+        let tx_id = Uuid::new_v4().to_string();
+        sqlx::query(
+            "INSERT INTO user_transactions (id, user_id, location_id, msats, transaction_type, created_at) VALUES (?, ?, ?, ?, 'collect', ?)"
+        )
+        .bind(&tx_id)
+        .bind(user_id)
+        .bind(&scan.location_id)
+        .bind(claimable_msats)
+        .bind(now)
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+
+        Ok(ClaimResult::Success {
+            msats: claimable_msats,
+            claim_id,
+        })
     }
 
     // Stats operations
@@ -487,29 +738,29 @@ impl Database {
                 .fetch_one(&self.pool)
                 .await?;
 
-        let total_scans: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM scans")
+        let total_claims: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM claims")
             .fetch_one(&self.pool)
             .await?;
 
-        // Total donation pool = sum of all location-specific donations minus withdrawals (scans)
+        // Total donation pool = sum of all location-specific donations minus claims
         let total_donations: (i64,) = sqlx::query_as(
             "SELECT COALESCE(SUM(amount_msats), 0) FROM donations WHERE location_id IS NOT NULL AND status = 'received'",
         )
         .fetch_one(&self.pool)
         .await?;
 
-        let total_withdrawals: (i64,) =
-            sqlx::query_as("SELECT COALESCE(SUM(msats_withdrawn), 0) FROM scans")
+        let total_claimed: (i64,) =
+            sqlx::query_as("SELECT COALESCE(SUM(msats_claimed), 0) FROM claims")
                 .fetch_one(&self.pool)
                 .await?;
 
-        let total_pool_msats = total_donations.0 - total_withdrawals.0;
+        let total_pool_msats = total_donations.0 - total_claimed.0;
 
         Ok(Stats {
             total_locations,
             // Total pool balance represents the total sats available across all locations
             total_sats_available: total_pool_msats.max(0) / 1000,
-            total_scans,
+            total_scans: total_claims,
             donation_pool_sats: total_pool_msats.max(0) / 1000,
         })
     }
@@ -650,14 +901,14 @@ impl Database {
         .fetch_one(&mut *tx)
         .await?;
 
-        let withdrawals: (i64,) = sqlx::query_as(
-            "SELECT COALESCE(SUM(msats_withdrawn), 0) FROM scans WHERE location_id = ?",
+        let claimed: (i64,) = sqlx::query_as(
+            "SELECT COALESCE(SUM(msats_claimed), 0) FROM claims WHERE location_id = ?",
         )
         .bind(location_id)
         .fetch_one(&mut *tx)
         .await?;
 
-        let pool_balance_msats = donations.0 - withdrawals.0;
+        let pool_balance_msats = donations.0 - claimed.0;
 
         // Compute the available balance
         let withdrawable_msats = compute_balance_msats(
@@ -688,12 +939,12 @@ impl Database {
             .execute(&mut *tx)
             .await?;
 
-        // Record the scan (debits from pool for future calculations)
-        let scan_id = Uuid::new_v4().to_string();
+        // Record the claim (debits from pool for future calculations)
+        let claim_id = Uuid::new_v4().to_string();
         sqlx::query(
-            "INSERT INTO scans (id, location_id, msats_withdrawn, scanned_at, user_id) VALUES (?, ?, ?, ?, NULL)"
+            "INSERT INTO claims (id, location_id, msats_claimed, claimed_at, user_id) VALUES (?, ?, ?, ?, NULL)"
         )
-        .bind(&scan_id)
+        .bind(&claim_id)
         .bind(location_id)
         .bind(withdrawable_msats)
         .bind(now)
@@ -857,14 +1108,14 @@ impl Database {
         .fetch_one(&mut *tx)
         .await?;
 
-        let withdrawals: (i64,) = sqlx::query_as(
-            "SELECT COALESCE(SUM(msats_withdrawn), 0) FROM scans WHERE location_id = ?",
+        let claimed: (i64,) = sqlx::query_as(
+            "SELECT COALESCE(SUM(msats_claimed), 0) FROM claims WHERE location_id = ?",
         )
         .bind(location_id)
         .fetch_one(&mut *tx)
         .await?;
 
-        let pool_balance_msats = donations.0 - withdrawals.0;
+        let pool_balance_msats = donations.0 - claimed.0;
 
         // Compute the available balance
         let collected_msats = compute_balance_msats(
@@ -925,12 +1176,12 @@ impl Database {
         .execute(&mut *tx)
         .await?;
 
-        // Record the scan with user_id (debits from pool for future calculations)
-        let scan_id = Uuid::new_v4().to_string();
+        // Record the claim with user_id (debits from pool for future calculations)
+        let claim_id = Uuid::new_v4().to_string();
         sqlx::query(
-            "INSERT INTO scans (id, location_id, msats_withdrawn, scanned_at, user_id) VALUES (?, ?, ?, ?, ?)"
+            "INSERT INTO claims (id, location_id, msats_claimed, claimed_at, user_id) VALUES (?, ?, ?, ?, ?)"
         )
-        .bind(&scan_id)
+        .bind(&claim_id)
         .bind(location_id)
         .bind(collected_msats)
         .bind(now)

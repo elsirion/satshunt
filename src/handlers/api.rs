@@ -5,7 +5,7 @@ use crate::{
     donation::NewDonation,
     lightning::{Lightning, LightningService},
     lnurl,
-    models::UserRole,
+    models::{ClaimResult, UserRole},
     ntag424,
 };
 use axum::{
@@ -1098,12 +1098,12 @@ async fn verify_and_prepare_withdrawal(
     Ok((location, nfc_card, counter, withdrawable_msats))
 }
 
-/// Record a successful withdrawal scan (called after payment succeeds)
+/// Record a successful withdrawal claim (called after payment succeeds)
 /// Note: Legacy withdrawal methods don't track user_id, so we pass None
 async fn record_withdrawal(state: &AppState, location_id: &str, amount_msats: i64) {
-    // Record the scan - this is best-effort, payment already succeeded
-    if let Err(e) = state.db.record_scan(location_id, amount_msats, None).await {
-        tracing::error!("Failed to record scan: {}", e);
+    // Record the claim - this is best-effort, payment already succeeded
+    if let Err(e) = state.db.record_claim(location_id, amount_msats, None).await {
+        tracing::error!("Failed to record claim: {}", e);
     }
 }
 
@@ -1580,7 +1580,12 @@ pub async fn collect_sats(
     // Atomically claim collection (creates user if needed, updates counter, computes balance)
     let collected_msats = match state
         .db
-        .claim_collection(&location_id, &user.user_id, counter as i64, &state.balance_config)
+        .claim_collection(
+            &location_id,
+            &user.user_id,
+            counter as i64,
+            &state.balance_config,
+        )
         .await
     {
         Ok(Some(msats)) => msats,
@@ -1631,6 +1636,134 @@ pub async fn collect_sats(
         )),
     )
         .into_response()
+}
+
+// ============================================================================
+// Claim Endpoint (new separate scan/claim flow)
+// ============================================================================
+
+/// Claim sats from a previous scan.
+///
+/// POST /api/claim/{scan_id}
+///
+/// The user must be the one who made the scan, and within 1 hour.
+pub async fn claim_sats(
+    State(state): State<Arc<AppState>>,
+    Path(scan_id): Path<String>,
+    user: CookieUser,
+) -> impl IntoResponse {
+    tracing::info!(
+        "Claim request for scan {} by user {}",
+        scan_id,
+        user.user_id
+    );
+
+    let result = state
+        .db
+        .claim_from_scan(&scan_id, &user.user_id, &state.balance_config)
+        .await;
+
+    match result {
+        Ok(ClaimResult::Success { msats, claim_id }) => {
+            let collected_sats = msats / 1000;
+
+            // Get new balance
+            let new_balance_msats = state
+                .db
+                .get_user_balance(&user.user_id)
+                .await
+                .unwrap_or(msats);
+            let new_balance_sats = new_balance_msats / 1000;
+
+            tracing::info!(
+                "User {} claimed {} sats (claim_id: {}), new balance: {} sats",
+                user.user_id,
+                collected_sats,
+                claim_id,
+                new_balance_sats
+            );
+
+            (
+                user.jar,
+                Json(CollectResponse::success(
+                    collected_sats,
+                    new_balance_sats,
+                    "this location".to_string(),
+                    user.user_id,
+                )),
+            )
+                .into_response()
+        }
+        Ok(ClaimResult::ScanNotFound) => (
+            user.jar,
+            (
+                StatusCode::NOT_FOUND,
+                Json(CollectResponse::error("Scan not found.")),
+            ),
+        )
+            .into_response(),
+        Ok(ClaimResult::NotYourScan) => (
+            user.jar,
+            (
+                StatusCode::FORBIDDEN,
+                Json(CollectResponse::error("This scan belongs to someone else.")),
+            ),
+        )
+            .into_response(),
+        Ok(ClaimResult::AlreadyClaimed) => (
+            user.jar,
+            (
+                StatusCode::CONFLICT,
+                Json(CollectResponse::error(
+                    "This scan has already been claimed.",
+                )),
+            ),
+        )
+            .into_response(),
+        Ok(ClaimResult::Expired) => (
+            user.jar,
+            (
+                StatusCode::GONE,
+                Json(CollectResponse::error(
+                    "This scan has expired. Please scan again.",
+                )),
+            ),
+        )
+            .into_response(),
+        Ok(ClaimResult::NotLastScanner) => (
+            user.jar,
+            (
+                StatusCode::CONFLICT,
+                Json(CollectResponse::error(
+                    "Someone else scanned after you. Please scan again.",
+                )),
+            ),
+        )
+            .into_response(),
+        Ok(ClaimResult::NoBalance) => (
+            user.jar,
+            (
+                StatusCode::BAD_REQUEST,
+                Json(CollectResponse::error(
+                    "No sats available at this location.",
+                )),
+            ),
+        )
+            .into_response(),
+        Err(e) => {
+            tracing::error!("Claim failed: {}", e);
+            (
+                user.jar,
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(CollectResponse::error(
+                        "Failed to process claim. Please try again.",
+                    )),
+                ),
+            )
+                .into_response()
+        }
+    }
 }
 
 // ============================================================================

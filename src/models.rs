@@ -332,21 +332,115 @@ impl LocationPoolDebit {
     }
 }
 
+/// A validated NFC scan (tap), recorded before claiming
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
-pub struct Scan {
+pub struct NfcScan {
     pub id: String,
     pub location_id: String,
-    pub msats_withdrawn: i64,
+    pub user_id: String,
+    pub counter: i64,
     pub scanned_at: DateTime<Utc>,
-    /// User who collected sats from this scan (None for legacy scans before custodial system)
+    pub claimed_at: Option<DateTime<Utc>>,
+    pub claim_id: Option<String>,
+}
+
+impl NfcScan {
+    /// Check if this scan is still claimable (within 1 hour, not yet claimed)
+    pub fn is_claimable(&self) -> bool {
+        if self.claimed_at.is_some() {
+            return false;
+        }
+        let age = Utc::now().signed_duration_since(self.scanned_at);
+        age.num_hours() < 1
+    }
+
+    /// Check if this scan has expired
+    pub fn is_expired(&self) -> bool {
+        let age = Utc::now().signed_duration_since(self.scanned_at);
+        age.num_hours() >= 1
+    }
+}
+
+/// A scan record with user display information for the location detail page
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+pub struct ScanWithUser {
+    pub id: String,
+    pub location_id: String,
+    pub user_id: String,
+    pub scanned_at: DateTime<Utc>,
+    pub claimed_at: Option<DateTime<Utc>>,
+    /// User's username (None for anonymous users)
+    pub username: Option<String>,
+    /// Amount claimed in msats (None if not claimed)
+    pub msats_claimed: Option<i64>,
+    /// Whether this is the most recent scan for the location
+    pub is_latest: bool,
+}
+
+impl ScanWithUser {
+    /// Get display name for the scanner
+    pub fn scanner_display_name(&self) -> String {
+        self.username
+            .clone()
+            .unwrap_or_else(|| format!("anon-{}", &self.user_id[..8.min(self.user_id.len())]))
+    }
+
+    /// Check if this scan has been claimed
+    pub fn is_claimed(&self) -> bool {
+        self.claimed_at.is_some()
+    }
+
+    /// Check if this scan is still claimable (latest, not claimed, within 1 hour)
+    pub fn is_claimable(&self) -> bool {
+        if self.claimed_at.is_some() || !self.is_latest {
+            return false;
+        }
+        let age = Utc::now().signed_duration_since(self.scanned_at);
+        age.num_hours() < 1
+    }
+
+    /// Get claimed amount in sats (0 if not claimed)
+    pub fn sats_claimed(&self) -> i64 {
+        self.msats_claimed.unwrap_or(0) / 1000
+    }
+}
+
+/// A claim record (sats actually credited to user)
+/// Renamed from the old Scan struct
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+pub struct Claim {
+    pub id: String,
+    pub location_id: String,
+    pub msats_claimed: i64,
+    pub claimed_at: DateTime<Utc>,
+    /// User who collected sats from this claim (None for legacy claims before custodial system)
     pub user_id: Option<String>,
 }
 
-impl Scan {
-    /// Get withdrawn amount in sats for display
-    pub fn sats_withdrawn(&self) -> i64 {
-        self.msats_withdrawn / 1000
+impl Claim {
+    /// Get claimed amount in sats for display
+    pub fn sats_claimed(&self) -> i64 {
+        self.msats_claimed / 1000
     }
+}
+
+/// Result of attempting to claim sats from a scan
+#[derive(Debug)]
+pub enum ClaimResult {
+    /// Successfully claimed sats
+    Success { msats: i64, claim_id: String },
+    /// Scan not found
+    ScanNotFound,
+    /// User is not the one who made this scan
+    NotYourScan,
+    /// Scan was already claimed
+    AlreadyClaimed,
+    /// Scan has expired (>1 hour)
+    Expired,
+    /// Someone else scanned after this user
+    NotLastScanner,
+    /// No balance available to claim
+    NoBalance,
 }
 
 /// User transaction for tracking sat collections and withdrawals in the custodial wallet
@@ -777,15 +871,15 @@ mod tests {
     }
 
     #[test]
-    fn test_scan_sats_withdrawn() {
-        let scan = Scan {
-            id: "scan-id".to_string(),
+    fn test_claim_sats_claimed() {
+        let claim = Claim {
+            id: "claim-id".to_string(),
             location_id: "loc-id".to_string(),
-            msats_withdrawn: 5678,
-            scanned_at: Utc::now(),
+            msats_claimed: 5678,
+            claimed_at: Utc::now(),
             user_id: None,
         };
-        assert_eq!(scan.sats_withdrawn(), 5);
+        assert_eq!(claim.sats_claimed(), 5);
     }
 
     // Note: test_refill_display_methods removed - Refill struct removed

@@ -1,4 +1,4 @@
-use crate::models::{Donation, Location, NfcCard, Photo, Scan, UserRole};
+use crate::models::{Donation, Location, NfcCard, Photo, ScanWithUser, UserRole};
 use crate::templates::components::{
     donation_invoice_markup, donation_invoice_script, DonationInvoiceConfig,
 };
@@ -8,7 +8,7 @@ use maud::{html, Markup, PreEscaped};
 pub fn location_detail(
     location: &Location,
     photos: &[Photo],
-    scans: &[Scan],
+    scans: &[ScanWithUser],
     available_sats: i64,
     pool_sats: i64,
     current_user_id: Option<&str>,
@@ -43,7 +43,6 @@ pub fn location_detail(
         let keys_request_url_encoded = urlencoding::encode(&keys_request_url);
         format!("boltcard://program?url={}", keys_request_url_encoded)
     });
-
 
     html! {
         div class="max-w-4xl mx-auto" {
@@ -446,12 +445,12 @@ pub fn location_detail(
                 }
             }
 
-            // Payout History (Latest Withdraws)
+            // Scan History
             @if !scans.is_empty() {
                 div class="card-brutal-inset mb-8" {
                     h2 class="heading-breaker" {
                         i class="fa-solid fa-history mr-2" {}
-                        "LATEST WITHDRAWS"
+                        "SCAN HISTORY"
                     }
 
                     div class="overflow-x-auto mt-8" {
@@ -459,21 +458,38 @@ pub fn location_detail(
                             thead {
                                 tr style="border-bottom: 2px solid var(--accent-muted);" {
                                     th class="text-left py-3 px-4 text-secondary font-black" { "DATE" }
-                                    th class="text-right py-3 px-4 text-secondary font-black" { "AMOUNT" }
+                                    th class="text-left py-3 px-4 text-secondary font-black" { "SCANNER" }
+                                    th class="text-right py-3 px-4 text-secondary font-black" { "STATUS" }
                                 }
                             }
                             tbody {
                                 @for scan in scans {
                                     tr style="border-bottom: 2px solid var(--accent-muted);" class="hover:bg-tertiary transition-colors" {
                                         td class="py-3 px-4 text-secondary font-bold mono text-sm" {
-                                            (scan.scanned_at.format("%Y-%m-%d %H:%M:%S UTC"))
+                                            (scan.scanned_at.format("%Y-%m-%d %H:%M"))
                                         }
-                                        td class="py-3 px-4 text-right mono" {
-                                            span class="text-highlight orange font-black" {
-                                                (scan.sats_withdrawn())
+                                        td class="py-3 px-4 text-secondary font-bold" {
+                                            i class="fa-solid fa-user mr-2 text-muted" {}
+                                            (scan.scanner_display_name())
+                                        }
+                                        td class="py-3 px-4 text-right" {
+                                            @if scan.is_claimed() {
+                                                span class="text-highlight orange font-black" {
+                                                    (scan.sats_claimed())
+                                                    " "
+                                                    i class="fa-solid fa-bolt" {}
+                                                }
+                                            } @else if scan.is_claimable() {
+                                                span class="text-secondary font-bold" {
+                                                    i class="fa-solid fa-clock mr-1" {}
+                                                    "PENDING"
+                                                }
+                                            } @else {
+                                                span class="text-muted font-bold" {
+                                                    i class="fa-solid fa-times mr-1" {}
+                                                    "EXPIRED"
+                                                }
                                             }
-                                            " "
-                                            i class="fa-solid fa-bolt text-highlight orange" {}
                                         }
                                     }
                                 }

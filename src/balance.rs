@@ -98,7 +98,8 @@ mod tests {
     fn test_half_time_gives_half_fill() {
         let config = test_config();
         let now = Utc::now();
-        let created_at = now - Duration::milliseconds((config.time_to_full_days as i64 * 24 * 60 * 60 * 1000) / 2);
+        let created_at = now
+            - Duration::milliseconds((config.time_to_full_days as i64 * 24 * 60 * 60 * 1000) / 2);
 
         let pool_msats = 1_000_000_000; // 1M sats = 1B msats
         let result = compute_balance_msats(pool_msats, None, created_at, &config);

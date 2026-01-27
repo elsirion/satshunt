@@ -144,8 +144,10 @@ async fn main() -> Result<()> {
             "/api/donate/wait/:invoice_and_amount",
             get(handlers::wait_for_donation),
         )
-        // Custodial collection endpoint
+        // Custodial collection endpoint (legacy - validates and claims in one step)
         .route("/api/collect/:location_id", post(handlers::collect_sats))
+        // New claim endpoint (claims from a pre-validated scan)
+        .route("/api/claim/:scan_id", post(handlers::claim_sats))
         // Custodial wallet withdrawal endpoints
         .route("/api/wallet/withdraw", post(handlers::wallet_withdraw))
         .route(
