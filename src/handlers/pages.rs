@@ -40,12 +40,9 @@ pub struct WithdrawQuery {
     pub error: Option<String>,
 }
 
-/// Helper to get username for navbar from UserKind
-fn get_navbar_username(kind: &UserKind) -> Option<String> {
-    match kind {
-        UserKind::Registered { username, .. } => Some(username.clone()),
-        _ => None,
-    }
+/// Helper to get username for navbar from CookieUser
+fn get_navbar_username(user: &CookieUser) -> Option<String> {
+    Some(user.display_name())
 }
 
 pub async fn home_page(
@@ -57,7 +54,7 @@ pub async fn home_page(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    let username = get_navbar_username(&user.kind);
+    let username = get_navbar_username(&user);
     let content = templates::home(&stats);
     let page = templates::base_with_user("Home", content, username.as_deref(), user.role());
 
@@ -90,7 +87,7 @@ pub async fn map_page(
         location_balances.push((location, balance_msats / 1000, pool_msats / 1000));
     }
 
-    let username = get_navbar_username(&user.kind);
+    let username = get_navbar_username(&user);
     let content = templates::map(&location_balances);
     let page = templates::base_with_user("Map", content, username.as_deref(), user.role());
 
@@ -159,7 +156,7 @@ pub async fn location_detail_page(
 
     let current_user_id = Some(user.user_id.as_str());
     let current_user_role = user.role();
-    let username = get_navbar_username(&user.kind);
+    let username = get_navbar_username(&user);
 
     let content = templates::location_detail(
         &location,
@@ -233,7 +230,7 @@ pub async fn donate_page(
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
-    let username = get_navbar_username(&user.kind);
+    let username = get_navbar_username(&user);
     let content = templates::donate(
         total_pool_msats / 1000,
         locations.len(),
@@ -514,7 +511,7 @@ pub async fn withdraw_page(
     let db_user = state.db.get_user_by_id(&user.user_id).await.ok().flatten();
 
     let is_new_user = matches!(user.kind, UserKind::AnonNew);
-    let username = get_navbar_username(&user.kind);
+    let username = get_navbar_username(&user);
 
     // Check if we have SUN parameters
     let (picc_data, cmac) = match (&params.p, &params.c) {
@@ -775,7 +772,7 @@ pub async fn wallet_page(
         params.location.as_deref(),
         lnurlw_string.as_deref(),
     );
-    let username = get_navbar_username(&user.kind);
+    let username = get_navbar_username(&user);
     let page = templates::base_with_user("My Wallet", content, username.as_deref(), user.role());
 
     Html(page.into_string())

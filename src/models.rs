@@ -382,7 +382,7 @@ impl ScanWithUser {
     pub fn scanner_display_name(&self) -> String {
         self.username
             .clone()
-            .unwrap_or_else(|| format!("anon-{}", &self.user_id[..8.min(self.user_id.len())]))
+            .unwrap_or_else(|| format!("anon_{}", &self.user_id[..8.min(self.user_id.len())]))
     }
 
     /// Check if this scan has been claimed
