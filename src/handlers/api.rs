@@ -514,17 +514,17 @@ pub async fn boltcard_keys(
 
     let on_existing = params.get("onExisting").map(|s| s.as_str());
 
-    // Get location by ID (the path parameter is the location ID)
+    // Get location by write token
     let location = state
         .db
-        .get_location(&write_token)
+        .get_location_by_write_token(&write_token)
         .await
         .map_err(|e| {
             tracing::error!("Failed to get location: {}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?
         .ok_or_else(|| {
-            tracing::warn!("Location not found: {}", write_token);
+            tracing::warn!("Location not found for write token: {}", write_token);
             StatusCode::NOT_FOUND
         })?;
 
