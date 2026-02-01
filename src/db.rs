@@ -742,17 +742,22 @@ impl Database {
             .fetch_one(&self.pool)
             .await?;
 
-        // Total donation pool = sum of all location-specific donations minus claims
+        // Total donation pool = sum of all location-specific donations for active locations minus their claims
         let total_donations: (i64,) = sqlx::query_as(
-            "SELECT COALESCE(SUM(amount_msats), 0) FROM donations WHERE location_id IS NOT NULL AND status = 'received'",
+            "SELECT COALESCE(SUM(d.amount_msats), 0) FROM donations d
+             JOIN locations l ON d.location_id = l.id
+             WHERE l.status = 'active' AND d.status = 'received'",
         )
         .fetch_one(&self.pool)
         .await?;
 
-        let total_claimed: (i64,) =
-            sqlx::query_as("SELECT COALESCE(SUM(msats_claimed), 0) FROM claims")
-                .fetch_one(&self.pool)
-                .await?;
+        let total_claimed: (i64,) = sqlx::query_as(
+            "SELECT COALESCE(SUM(c.msats_claimed), 0) FROM claims c
+             JOIN locations l ON c.location_id = l.id
+             WHERE l.status = 'active'",
+        )
+        .fetch_one(&self.pool)
+        .await?;
 
         let total_pool_msats = total_donations.0 - total_claimed.0;
 
