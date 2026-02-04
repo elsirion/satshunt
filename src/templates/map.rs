@@ -13,7 +13,7 @@ pub fn map(location_balances: &[(&Location, i64, i64)]) -> Markup {
 
         div class="alert-brutal mb-8" {
             p class="text-sm font-bold" {
-                "EXPLORE LOCATIONS AROUND YOU. GREEN MARKERS HAVE MORE SATS AVAILABLE, RED MARKERS ARE NEARLY EMPTY."
+                "EXPLORE LOCATIONS AROUND YOU. TAP MARKERS TO SEE AVAILABLE SATS."
             }
         }
 
@@ -59,15 +59,12 @@ pub fn map(location_balances: &[(&Location, i64, i64)]) -> Markup {
             const bounds = new maplibregl.LngLatBounds();
 
             locations.forEach(loc => {{
-                const satsPercent = loc.pool_sats > 0 ? (loc.available_sats / loc.pool_sats * 10) * 100 : 0;
-                const color = satsPercent > 50 ? '#22c55e' : satsPercent > 20 ? '#eab308' : '#ef4444';
-
                 // Create custom marker element
                 const el = document.createElement('div');
                 el.style.width = '20px';
                 el.style.height = '20px';
                 el.style.borderRadius = '50%';
-                el.style.backgroundColor = color;
+                el.style.backgroundColor = '#F7931A';
                 el.style.border = '2px solid #fff';
                 el.style.cursor = 'pointer';
                 el.style.boxShadow = '0 2px 4px rgba(0,0,0,0.3)';
