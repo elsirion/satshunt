@@ -770,7 +770,7 @@ impl Database {
                 .fetch_one(&self.pool)
                 .await?;
 
-        let total_claims: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM claims")
+        let total_scans: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM scans")
             .fetch_one(&self.pool)
             .await?;
 
@@ -797,7 +797,7 @@ impl Database {
             total_locations,
             // Total pool balance represents the total sats available across all locations
             total_sats_available: total_pool_msats.max(0) / 1000,
-            total_scans: total_claims,
+            total_scans,
             donation_pool_sats: total_pool_msats.max(0) / 1000,
         })
     }
