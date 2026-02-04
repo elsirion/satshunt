@@ -1,8 +1,8 @@
 use super::format_sats_si;
-use crate::models::Stats;
+use crate::models::{ScanWithLocation, Stats};
 use maud::{html, Markup};
 
-pub fn home(stats: &Stats) -> Markup {
+pub fn home(stats: &Stats, user_scans: &[ScanWithLocation]) -> Markup {
     html! {
         // Hero section
         div class="text-center mb-12" {
@@ -22,6 +22,51 @@ pub fn home(stats: &Stats) -> Markup {
                     class="btn-brutal" {
                     i class="fa-solid fa-plus mr-2" {}
                     "ADD LOCATION"
+                }
+            }
+        }
+
+        // Recent scans section (only shown if user has scans)
+        @if !user_scans.is_empty() {
+            div class="card-brutal-inset mt-12 mb-12" {
+                h2 class="heading-breaker" {
+                    i class="fa-solid fa-history mr-2" {}
+                    "YOUR RECENT SCANS"
+                }
+
+                div class="mt-4 space-y-2" {
+                    @for scan in user_scans {
+                        a href={"/locations/" (scan.location_id)} class="block p-3 hover:bg-tertiary transition-colors" style="border-bottom: 2px solid var(--accent-muted);" {
+                            // First row: timestamp
+                            div class="text-muted font-bold mono text-xs mb-1" {
+                                (scan.scanned_at.format("%Y-%m-%d %H:%M"))
+                            }
+                            // Second row: location name and status
+                            div class="flex justify-between items-center" {
+                                div class="text-primary font-bold" {
+                                    i class="fa-solid fa-location-dot mr-2 text-muted" {}
+                                    (scan.location_name)
+                                }
+                                div {
+                                    @if scan.is_claimed() {
+                                        span class="text-highlight orange font-black" {
+                                            (format_sats_si(scan.sats_claimed()))
+                                            " "
+                                            i class="fa-solid fa-bolt" {}
+                                        }
+                                    } @else if scan.is_claimable() {
+                                        span class="text-secondary font-bold" {
+                                            i class="fa-solid fa-clock" {}
+                                        }
+                                    } @else {
+                                        span class="text-muted font-bold" {
+                                            i class="fa-solid fa-times" {}
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }

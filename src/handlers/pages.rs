@@ -54,9 +54,22 @@ pub async fn home_page(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
+    // Get recent scans for the user (limit 10)
+    let user_scans = state
+        .db
+        .get_scans_with_location_for_user(&user.user_id, 10)
+        .await
+        .unwrap_or_default();
+
     let display_name = get_navbar_display_name(&user);
-    let content = templates::home(&stats);
-    let page = templates::base_with_user("Home", content, &display_name, user.role(), user.is_registered());
+    let content = templates::home(&stats, &user_scans);
+    let page = templates::base_with_user(
+        "Home",
+        content,
+        &display_name,
+        user.role(),
+        user.is_registered(),
+    );
 
     Ok(Html(page.into_string()))
 }
@@ -89,7 +102,13 @@ pub async fn map_page(
 
     let display_name = get_navbar_display_name(&user);
     let content = templates::map(&location_balances);
-    let page = templates::base_with_user("Map", content, &display_name, user.role(), user.is_registered());
+    let page = templates::base_with_user(
+        "Map",
+        content,
+        &display_name,
+        user.role(),
+        user.is_registered(),
+    );
 
     Ok(Html(page.into_string()))
 }
@@ -173,7 +192,13 @@ pub async fn location_detail_page(
         &donations,
         nfc_card.as_ref(),
     );
-    let page = templates::base_with_user(&location.name, content, &display_name, user.role(), user.is_registered());
+    let page = templates::base_with_user(
+        &location.name,
+        content,
+        &display_name,
+        user.role(),
+        user.is_registered(),
+    );
 
     Ok(Html(page.into_string()))
 }
@@ -236,7 +261,13 @@ pub async fn donate_page(
         locations.len(),
         &received_donations,
     );
-    let page = templates::base_with_user("Donate", content, &display_name, user.role(), user.is_registered());
+    let page = templates::base_with_user(
+        "Donate",
+        content,
+        &display_name,
+        user.role(),
+        user.is_registered(),
+    );
 
     Ok(Html(page.into_string()))
 }
@@ -460,7 +491,13 @@ pub async fn profile_page(
 
     let content = templates::profile(&db_user, &location_balances);
     let display_name = db_user.display_name();
-    let page = templates::base_with_user("Profile", content, &display_name, user.role(), user.is_registered());
+    let page = templates::base_with_user(
+        "Profile",
+        content,
+        &display_name,
+        user.role(),
+        user.is_registered(),
+    );
 
     Ok(Html(page.into_string()))
 }
@@ -778,7 +815,13 @@ pub async fn wallet_page(
         lnurlw_string.as_deref(),
     );
     let display_name = get_navbar_display_name(&user);
-    let page = templates::base_with_user("My Wallet", content, &display_name, user.role(), user.is_registered());
+    let page = templates::base_with_user(
+        "My Wallet",
+        content,
+        &display_name,
+        user.role(),
+        user.is_registered(),
+    );
 
     Html(page.into_string())
 }

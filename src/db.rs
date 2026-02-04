@@ -1,7 +1,7 @@
 use crate::balance::{compute_balance_msats, BalanceConfig};
 use crate::models::{
-    AuthMethod, Claim, ClaimResult, Donation, Location, NfcCard, NfcScan, Photo, ScanWithUser,
-    Stats, User, UserRole, UserTransaction, WithdrawalStatus,
+    AuthMethod, Claim, ClaimResult, Donation, Location, NfcCard, NfcScan, Photo, ScanWithLocation,
+    ScanWithUser, Stats, User, UserRole, UserTransaction, WithdrawalStatus,
 };
 use anyhow::Result;
 use chrono::Utc;
@@ -575,6 +575,38 @@ impl Database {
             "#,
         )
         .bind(location_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(Into::into)
+    }
+
+    /// Get recent scans for a user with location info
+    pub async fn get_scans_with_location_for_user(
+        &self,
+        user_id: &str,
+        limit: i32,
+    ) -> Result<Vec<ScanWithLocation>> {
+        sqlx::query_as::<_, ScanWithLocation>(
+            r#"
+            SELECT
+                s.id,
+                s.location_id,
+                s.user_id,
+                s.scanned_at,
+                s.claimed_at,
+                c.msats_claimed,
+                (s.scanned_at = (SELECT MAX(scanned_at) FROM scans WHERE location_id = s.location_id)) AS is_latest,
+                l.name AS location_name
+            FROM scans s
+            LEFT JOIN claims c ON s.claim_id = c.id
+            JOIN locations l ON s.location_id = l.id
+            WHERE s.user_id = ?
+            ORDER BY s.scanned_at DESC
+            LIMIT ?
+            "#,
+        )
+        .bind(user_id)
+        .bind(limit)
         .fetch_all(&self.pool)
         .await
         .map_err(Into::into)

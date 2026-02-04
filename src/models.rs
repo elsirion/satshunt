@@ -424,6 +424,43 @@ impl Claim {
     }
 }
 
+/// A scan record with location information for the user's scan history
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+pub struct ScanWithLocation {
+    pub id: String,
+    pub location_id: String,
+    pub user_id: String,
+    pub scanned_at: DateTime<Utc>,
+    pub claimed_at: Option<DateTime<Utc>>,
+    /// Amount claimed in msats (None if not claimed)
+    pub msats_claimed: Option<i64>,
+    /// Whether this is the most recent scan for the location
+    pub is_latest: bool,
+    /// Location name
+    pub location_name: String,
+}
+
+impl ScanWithLocation {
+    /// Check if this scan has been claimed
+    pub fn is_claimed(&self) -> bool {
+        self.claimed_at.is_some()
+    }
+
+    /// Check if this scan is still claimable (latest, not claimed, within 1 hour)
+    pub fn is_claimable(&self) -> bool {
+        if self.claimed_at.is_some() || !self.is_latest {
+            return false;
+        }
+        let age = Utc::now().signed_duration_since(self.scanned_at);
+        age.num_hours() < 1
+    }
+
+    /// Get claimed amount in sats (0 if not claimed)
+    pub fn sats_claimed(&self) -> i64 {
+        self.msats_claimed.unwrap_or(0) / 1000
+    }
+}
+
 /// Result of attempting to claim sats from a scan
 #[derive(Debug)]
 pub enum ClaimResult {
