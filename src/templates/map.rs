@@ -41,7 +41,7 @@ pub fn map(location_balances: &[(&Location, i64, i64)]) -> Markup {
             }
         }
 
-        // Map initialization script - build JSON manually with computed balances
+        // Map initialization script - build GeoJSON for clustering
         (PreEscaped(format!(r#"
         <script>
             // Initialize map with MapLibre
@@ -54,24 +54,95 @@ pub fn map(location_balances: &[(&Location, i64, i64)]) -> Markup {
 
             map.addControl(new maplibregl.NavigationControl());
 
-            // Add locations as markers
+            // Location data as GeoJSON
             const locations = {locations_json};
+            const geojson = {{
+                type: 'FeatureCollection',
+                features: locations.map(loc => ({{
+                    type: 'Feature',
+                    geometry: {{ type: 'Point', coordinates: [loc.longitude, loc.latitude] }},
+                    properties: loc
+                }}))
+            }};
+
             const bounds = new maplibregl.LngLatBounds();
+            locations.forEach(loc => bounds.extend([loc.longitude, loc.latitude]));
 
-            locations.forEach(loc => {{
-                // Create custom marker element
-                const el = document.createElement('div');
-                el.style.width = '20px';
-                el.style.height = '20px';
-                el.style.borderRadius = '50%';
-                el.style.backgroundColor = '#F7931A';
-                el.style.border = '2px solid #fff';
-                el.style.cursor = 'pointer';
-                el.style.boxShadow = '0 2px 4px rgba(0,0,0,0.3)';
+            map.on('load', () => {{
+                // Add clustered source
+                map.addSource('locations', {{
+                    type: 'geojson',
+                    data: geojson,
+                    cluster: true,
+                    clusterMaxZoom: 14,
+                    clusterRadius: 50
+                }});
 
-                const marker = new maplibregl.Marker({{element: el}})
-                    .setLngLat([loc.longitude, loc.latitude])
-                    .setPopup(new maplibregl.Popup({{ offset: 25 }})
+                // Cluster circles
+                map.addLayer({{
+                    id: 'clusters',
+                    type: 'circle',
+                    source: 'locations',
+                    filter: ['has', 'point_count'],
+                    paint: {{
+                        'circle-color': '#F7931A',
+                        'circle-radius': ['step', ['get', 'point_count'], 18, 10, 24, 50, 32],
+                        'circle-stroke-width': 2,
+                        'circle-stroke-color': '#fff'
+                    }}
+                }});
+
+                // Cluster count labels
+                map.addLayer({{
+                    id: 'cluster-count',
+                    type: 'symbol',
+                    source: 'locations',
+                    filter: ['has', 'point_count'],
+                    layout: {{
+                        'text-field': '{{point_count_abbreviated}}',
+                        'text-font': ['Noto Sans Bold'],
+                        'text-size': 12
+                    }},
+                    paint: {{
+                        'text-color': '#fff'
+                    }}
+                }});
+
+                // Individual location points
+                map.addLayer({{
+                    id: 'unclustered-point',
+                    type: 'circle',
+                    source: 'locations',
+                    filter: ['!', ['has', 'point_count']],
+                    paint: {{
+                        'circle-color': '#F7931A',
+                        'circle-radius': 8,
+                        'circle-stroke-width': 2,
+                        'circle-stroke-color': '#fff'
+                    }}
+                }});
+
+                // Click on cluster to zoom in
+                map.on('click', 'clusters', async (e) => {{
+                    const features = map.queryRenderedFeatures(e.point, {{ layers: ['clusters'] }});
+                    const clusterId = features[0].properties.cluster_id;
+                    const source = map.getSource('locations');
+                    try {{
+                        const zoom = await source.getClusterExpansionZoom(clusterId);
+                        map.easeTo({{
+                            center: features[0].geometry.coordinates,
+                            zoom: zoom
+                        }});
+                    }} catch (err) {{
+                        console.error('Error expanding cluster:', err);
+                    }}
+                }});
+
+                // Click on individual point to show popup
+                map.on('click', 'unclustered-point', (e) => {{
+                    const loc = e.features[0].properties;
+                    new maplibregl.Popup({{ offset: 15 }})
+                        .setLngLat(e.features[0].geometry.coordinates)
                         .setHTML(`
                             <div style="color: #0f172a; padding: 8px;">
                                 <h3 style="font-weight: bold; margin-bottom: 4px;">${{loc.name}}</h3>
@@ -79,15 +150,21 @@ pub fn map(location_balances: &[(&Location, i64, i64)]) -> Markup {
                                 <p style="margin: 4px 0; font-size: 0.9em; color: #666;">Pool: ${{loc.pool_sats_fmt}} sats</p>
                                 <a href="/locations/${{loc.id}}" style="color: #3b82f6; text-decoration: underline;">View details</a>
                             </div>
-                        `))
-                    .addTo(map);
+                        `)
+                        .addTo(map);
+                }});
 
-                bounds.extend([loc.longitude, loc.latitude]);
+                // Change cursor on hover
+                map.on('mouseenter', 'clusters', () => {{ map.getCanvas().style.cursor = 'pointer'; }});
+                map.on('mouseleave', 'clusters', () => {{ map.getCanvas().style.cursor = ''; }});
+                map.on('mouseenter', 'unclustered-point', () => {{ map.getCanvas().style.cursor = 'pointer'; }});
+                map.on('mouseleave', 'unclustered-point', () => {{ map.getCanvas().style.cursor = ''; }});
+
+                // Fit bounds after layers are added
+                if (locations.length > 0) {{
+                    map.fitBounds(bounds, {{ padding: 50, animate: false }});
+                }}
             }});
-
-            if (locations.length > 0) {{
-                map.fitBounds(bounds, {{ padding: 50, animate: false }});
-            }}
         </script>
         "#,
         locations_json = build_locations_json(location_balances)
