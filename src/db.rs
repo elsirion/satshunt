@@ -1,7 +1,8 @@
 use crate::balance::{compute_balance_msats, BalanceConfig};
 use crate::models::{
-    AuthMethod, Claim, ClaimResult, Donation, Location, NfcCard, NfcScan, Photo, ScanWithLocation,
-    ScanWithUser, Stats, User, UserRole, UserTransaction, WithdrawalStatus,
+    AdminScan, AuthMethod, Claim, ClaimResult, DailyScanCount, Donation, Location, NfcCard,
+    NfcScan, Photo, ScanWithLocation, ScanWithUser, Stats, User, UserRole, UserTransaction,
+    WithdrawalStatus,
 };
 use anyhow::Result;
 use chrono::Utc;
@@ -610,6 +611,78 @@ impl Database {
         .fetch_all(&self.pool)
         .await
         .map_err(Into::into)
+    }
+
+    /// Get paginated global scan list for admin page
+    pub async fn get_admin_scans(&self, limit: i64, offset: i64) -> Result<Vec<AdminScan>> {
+        sqlx::query_as::<_, AdminScan>(
+            r#"
+            SELECT
+                s.id,
+                s.location_id,
+                s.user_id,
+                s.scanned_at,
+                s.claimed_at,
+                c.msats_claimed,
+                l.name AS location_name,
+                creator.username AS creator_username,
+                l.user_id AS creator_user_id,
+                scanner.username AS scanner_username
+            FROM scans s
+            LEFT JOIN claims c ON s.claim_id = c.id
+            JOIN locations l ON s.location_id = l.id
+            LEFT JOIN users creator ON l.user_id = creator.id
+            LEFT JOIN users scanner ON s.user_id = scanner.id
+            ORDER BY s.scanned_at DESC
+            LIMIT ? OFFSET ?
+            "#,
+        )
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(Into::into)
+    }
+
+    /// Get total scan count for pagination
+    pub async fn count_scans(&self) -> Result<i64> {
+        let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM scans")
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(row.0)
+    }
+
+    /// Get daily scan counts for a date range (inclusive)
+    pub async fn get_daily_scan_counts(
+        &self,
+        from_date: &str,
+        to_date: &str,
+    ) -> Result<Vec<DailyScanCount>> {
+        sqlx::query_as::<_, DailyScanCount>(
+            r#"
+            SELECT
+                DATE(scanned_at) AS date,
+                COUNT(*) AS count
+            FROM scans
+            WHERE DATE(scanned_at) >= ? AND DATE(scanned_at) <= ?
+            GROUP BY DATE(scanned_at)
+            ORDER BY date ASC
+            "#,
+        )
+        .bind(from_date)
+        .bind(to_date)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(Into::into)
+    }
+
+    /// Get the date of the earliest scan (for "all time" graph range)
+    pub async fn get_earliest_scan_date(&self) -> Result<Option<chrono::NaiveDate>> {
+        let row: Option<(String,)> =
+            sqlx::query_as("SELECT DATE(MIN(scanned_at)) FROM scans WHERE scanned_at IS NOT NULL")
+                .fetch_optional(&self.pool)
+                .await?;
+        Ok(row.and_then(|(d,)| d.parse().ok()))
     }
 
     /// Claim sats from a previous scan
