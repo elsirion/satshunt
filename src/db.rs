@@ -678,11 +678,12 @@ impl Database {
 
     /// Get the date of the earliest scan (for "all time" graph range)
     pub async fn get_earliest_scan_date(&self) -> Result<Option<chrono::NaiveDate>> {
-        let row: Option<(String,)> =
-            sqlx::query_as("SELECT DATE(MIN(scanned_at)) FROM scans WHERE scanned_at IS NOT NULL")
-                .fetch_optional(&self.pool)
-                .await?;
-        Ok(row.and_then(|(d,)| d.parse().ok()))
+        let date: Option<chrono::NaiveDate> = sqlx::query_scalar(
+            "SELECT DATE(MIN(scanned_at)) FROM scans WHERE scanned_at IS NOT NULL",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(date)
     }
 
     /// Claim sats from a previous scan

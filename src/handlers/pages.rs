@@ -898,16 +898,16 @@ pub async fn admin_scans_page(
 ) -> Result<Html<String>, Response> {
     let username = user.ensure_registered_with_role(UserRole::Admin)?;
 
-    let page = query.page.unwrap_or(1).max(1);
     let days = query.days.unwrap_or(30).max(0); // 0 = all time
     let per_page: i64 = 50;
-    let offset = (page - 1) * per_page;
 
     let total_scans = state.db.count_scans().await.map_err(|e| {
         tracing::error!("Failed to count scans: {}", e);
         StatusCode::INTERNAL_SERVER_ERROR.into_response()
     })?;
     let total_pages = (total_scans + per_page - 1) / per_page;
+    let page = query.page.unwrap_or(1).max(1).min(total_pages.max(1));
+    let offset = (page - 1) * per_page;
 
     let scans = state
         .db
