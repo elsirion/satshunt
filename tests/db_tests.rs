@@ -1,5 +1,6 @@
 use satshunt::db::Database;
 use satshunt::models::AuthMethod;
+use sqlx::Executor as _;
 use tempfile::TempDir;
 
 async fn setup_test_db() -> (Database, TempDir) {
@@ -372,4 +373,109 @@ async fn test_get_stats() {
     // Pool balance = 150000 msats = 150 sats (100k + 50k donations, no scans)
     assert_eq!(stats.total_sats_available, 150);
     assert_eq!(stats.donation_pool_sats, 150);
+}
+
+/// Helper to insert a scan directly for testing (bypasses NFC card validation)
+async fn insert_test_scan(db: &Database, location_id: &str, user_id: &str, scanned_at: &str) {
+    let id = uuid::Uuid::new_v4().to_string();
+    db.pool()
+        .execute(
+            sqlx::query(
+                "INSERT INTO scans (id, location_id, user_id, counter, scanned_at) VALUES (?, ?, ?, 1, ?)",
+            )
+            .bind(&id)
+            .bind(location_id)
+            .bind(user_id)
+            .bind(scanned_at),
+        )
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn test_admin_scans_empty() {
+    let (db, _temp) = setup_test_db().await;
+
+    let scans = db.get_admin_scans(50, 0).await.unwrap();
+    assert!(scans.is_empty());
+
+    let count = db.count_scans().await.unwrap();
+    assert_eq!(count, 0);
+
+    let earliest = db.get_earliest_scan_date().await.unwrap();
+    assert!(earliest.is_none());
+
+    let daily = db
+        .get_daily_scan_counts("2026-01-01", "2026-01-31")
+        .await
+        .unwrap();
+    assert!(daily.is_empty());
+}
+
+#[tokio::test]
+async fn test_admin_scans_with_data() {
+    let (db, _temp) = setup_test_db().await;
+
+    let auth = AuthMethod::Password {
+        password_hash: "hash".to_string(),
+    };
+    let creator = db
+        .create_user("creator".to_string(), None, auth.clone())
+        .await
+        .unwrap();
+    let scanner = db
+        .create_user("scanner".to_string(), None, auth)
+        .await
+        .unwrap();
+
+    let location = db
+        .create_location(
+            "TestLoc".to_string(),
+            0.0,
+            0.0,
+            None,
+            "secret".to_string(),
+            creator.id.clone(),
+        )
+        .await
+        .unwrap();
+
+    insert_test_scan(&db, &location.id, &scanner.id, "2026-03-10T10:00:00Z").await;
+    insert_test_scan(&db, &location.id, &scanner.id, "2026-03-10T14:00:00Z").await;
+    insert_test_scan(&db, &location.id, &scanner.id, "2026-03-12T09:00:00Z").await;
+
+    // count_scans
+    assert_eq!(db.count_scans().await.unwrap(), 3);
+
+    // get_admin_scans returns newest first
+    let scans = db.get_admin_scans(50, 0).await.unwrap();
+    assert_eq!(scans.len(), 3);
+    assert_eq!(scans[0].location_name, "TestLoc");
+    assert_eq!(scans[0].scanner_username, Some("scanner".to_string()));
+    assert_eq!(scans[0].creator_username, Some("creator".to_string()));
+    assert!(scans[0].scanned_at >= scans[1].scanned_at);
+
+    // pagination
+    let page1 = db.get_admin_scans(2, 0).await.unwrap();
+    assert_eq!(page1.len(), 2);
+    let page2 = db.get_admin_scans(2, 2).await.unwrap();
+    assert_eq!(page2.len(), 1);
+
+    // get_daily_scan_counts
+    let daily = db
+        .get_daily_scan_counts("2026-03-10", "2026-03-12")
+        .await
+        .unwrap();
+    assert_eq!(daily.len(), 2); // Mar 10 and Mar 12 (Mar 11 has no scans)
+    assert_eq!(daily[0].date, "2026-03-10");
+    assert_eq!(daily[0].count, 2);
+    assert_eq!(daily[1].date, "2026-03-12");
+    assert_eq!(daily[1].count, 1);
+
+    // get_earliest_scan_date
+    let earliest = db.get_earliest_scan_date().await.unwrap();
+    assert_eq!(
+        earliest,
+        Some(chrono::NaiveDate::from_ymd_opt(2026, 3, 10).unwrap())
+    );
 }

@@ -501,8 +501,7 @@ pub fn location_detail(
             }
 
             // NFC Card Management (for owner/admin)
-            @if (is_owner || is_admin) && nfc_card.is_some() {
-                @let card = nfc_card.unwrap();
+            @if let Some(card) = nfc_card.as_ref().filter(|_| is_owner || is_admin) {
                 div class="card-brutal-inset mb-8" {
                     h2 class="heading-breaker" {
                         i class="fa-solid fa-microchip mr-2" {}

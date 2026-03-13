@@ -108,7 +108,12 @@ pub fn base_with_user(
     }
 }
 
-fn navbar(username: &str, can_create_locations: bool, is_admin: bool, is_registered: bool) -> Markup {
+fn navbar(
+    username: &str,
+    can_create_locations: bool,
+    is_admin: bool,
+    is_registered: bool,
+) -> Markup {
     html! {
         nav class="bg-secondary" style="border-bottom: 3px solid var(--accent-border);" {
             div class="content-container py-4" {
@@ -182,6 +187,10 @@ fn navbar(username: &str, can_create_locations: bool, is_admin: bool, is_registe
                                         a href="/admin/locations" class="flex items-center gap-2 px-4 py-2 text-highlight text-sm font-bold hover:bg-elevated orange" style="border-bottom: none;" {
                                             i class="fa-solid fa-map-location-dot w-4" {}
                                             "ALL LOCATIONS"
+                                        }
+                                        a href="/admin/scans" class="flex items-center gap-2 px-4 py-2 text-highlight text-sm font-bold hover:bg-elevated orange" style="border-bottom: none;" {
+                                            i class="fa-solid fa-barcode w-4" {}
+                                            "SCAN LOG"
                                         }
                                     }
                                 }
@@ -280,6 +289,10 @@ fn navbar(username: &str, can_create_locations: bool, is_admin: bool, is_registe
                                 a href="/admin/locations" class="flex items-center gap-2 py-2 px-3 text-highlight font-bold hover:bg-tertiary orange" style="border-bottom: none;" {
                                     i class="fa-solid fa-map-location-dot w-5" {}
                                     "ALL LOCATIONS"
+                                }
+                                a href="/admin/scans" class="flex items-center gap-2 py-2 px-3 text-highlight font-bold hover:bg-tertiary orange" style="border-bottom: none;" {
+                                    i class="fa-solid fa-barcode w-5" {}
+                                    "SCAN LOG"
                                 }
                             }
                         }

@@ -883,3 +883,82 @@ pub async fn admin_locations_page(
 
     Ok(Html(page.into_string()))
 }
+
+#[derive(Deserialize)]
+pub struct AdminScansQuery {
+    pub page: Option<i64>,
+    pub days: Option<i64>,
+}
+
+/// Admin scans page - global scan list with daily scan graph
+pub async fn admin_scans_page(
+    user: CookieUser,
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<AdminScansQuery>,
+) -> Result<Html<String>, Response> {
+    let username = user.ensure_registered_with_role(UserRole::Admin)?;
+
+    let days = query.days.unwrap_or(30).max(0); // 0 = all time
+    let per_page: i64 = 50;
+
+    let total_scans = state.db.count_scans().await.map_err(|e| {
+        tracing::error!("Failed to count scans: {}", e);
+        StatusCode::INTERNAL_SERVER_ERROR.into_response()
+    })?;
+    let total_pages = (total_scans + per_page - 1) / per_page;
+    let page = query.page.unwrap_or(1).max(1).min(total_pages.max(1));
+    let offset = (page - 1) * per_page;
+
+    let scans = state
+        .db
+        .get_admin_scans(per_page, offset)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to get admin scans: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        })?;
+
+    let today = chrono::Utc::now().date_naive();
+    let from_date = if days == 0 {
+        // All time: find earliest scan date, fall back to today
+        state
+            .db
+            .get_earliest_scan_date()
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or(today)
+    } else {
+        today - chrono::Duration::days(days - 1)
+    };
+    let daily_counts = state
+        .db
+        .get_daily_scan_counts(&from_date.to_string(), &today.to_string())
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to get daily scan counts: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        })?;
+
+    // Fill in missing days with zero counts
+    let counts_map: std::collections::HashMap<String, i64> = daily_counts
+        .iter()
+        .map(|d| (d.date.clone(), d.count))
+        .collect();
+    let mut filled_counts = Vec::new();
+    let mut current = from_date;
+    while current <= today {
+        let date_str = current.to_string();
+        let count = counts_map.get(&date_str).copied().unwrap_or(0);
+        filled_counts.push(crate::models::DailyScanCount {
+            date: date_str,
+            count,
+        });
+        current += chrono::Duration::days(1);
+    }
+
+    let content = templates::admin_scans(&scans, &filled_counts, page, total_pages, days);
+    let page_html = templates::base_with_user("Scan Log", content, username, user.role(), true);
+
+    Ok(Html(page_html.into_string()))
+}

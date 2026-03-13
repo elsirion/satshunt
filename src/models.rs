@@ -461,6 +461,54 @@ impl ScanWithLocation {
     }
 }
 
+/// A scan record with full context for the admin global scan list
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+pub struct AdminScan {
+    pub id: String,
+    pub location_id: String,
+    pub user_id: String,
+    pub scanned_at: DateTime<Utc>,
+    pub claimed_at: Option<DateTime<Utc>>,
+    /// Amount claimed in msats (None if not claimed)
+    pub msats_claimed: Option<i64>,
+    /// Location name
+    pub location_name: String,
+    /// Location creator username
+    pub creator_username: Option<String>,
+    /// Location creator user ID (for fallback display)
+    pub creator_user_id: String,
+    /// Scanner username
+    pub scanner_username: Option<String>,
+}
+
+impl AdminScan {
+    pub fn sats_claimed(&self) -> i64 {
+        self.msats_claimed.unwrap_or(0) / 1000
+    }
+
+    pub fn scanner_display_name(&self) -> String {
+        self.scanner_username
+            .clone()
+            .unwrap_or_else(|| format!("anon_{}", &self.user_id[..8.min(self.user_id.len())]))
+    }
+
+    pub fn creator_display_name(&self) -> String {
+        self.creator_username.clone().unwrap_or_else(|| {
+            format!(
+                "anon_{}",
+                &self.creator_user_id[..8.min(self.creator_user_id.len())]
+            )
+        })
+    }
+}
+
+/// Daily scan count for the admin scan graph
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+pub struct DailyScanCount {
+    pub date: String,
+    pub count: i64,
+}
+
 /// Result of attempting to claim sats from a scan
 #[derive(Debug)]
 pub enum ClaimResult {

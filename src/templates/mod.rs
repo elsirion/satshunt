@@ -1,4 +1,5 @@
 pub mod admin_locations;
+pub mod admin_scans;
 pub mod admin_users;
 pub mod collect;
 pub mod components;
@@ -30,7 +31,13 @@ pub fn format_sats_si(sats: i64) -> String {
     };
 
     // Round to 3 significant figures
-    let decimals = if val >= 100.0 { 0 } else if val >= 10.0 { 1 } else { 2 };
+    let decimals = if val >= 100.0 {
+        0
+    } else if val >= 10.0 {
+        1
+    } else {
+        2
+    };
     let formatted = format!("{:.decimals$}{suffix}", val);
 
     // Handle rounding up to next unit (e.g., 999.9k -> 1000k should be 1M)
@@ -42,6 +49,7 @@ pub fn format_sats_si(sats: i64) -> String {
 }
 
 pub use admin_locations::admin_locations;
+pub use admin_scans::admin_scans;
 pub use admin_users::admin_users;
 pub use collect::{collect, CollectParams};
 pub use donate::donate;

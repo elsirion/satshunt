@@ -128,6 +128,7 @@ async fn main() -> Result<()> {
             "/admin/locations",
             get(auth(handlers::admin_locations_page)),
         )
+        .route("/admin/scans", get(auth(handlers::admin_scans_page)))
         // API routes
         .route("/api/locations", post(handlers::create_location))
         .route(
