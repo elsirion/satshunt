@@ -33,7 +33,11 @@ pub fn location_detail(
         .map(|id| id == location.user_id)
         .unwrap_or(false);
     let is_admin = current_user_role == UserRole::Admin;
-    let can_manage_photos = is_owner && !location.is_active();
+    let can_manage_photos = is_owner;
+    let photo_nudge_visible = is_owner
+        && photos.is_empty()
+        && !location.is_deactivated()
+        && !location.is_admin_deactivated();
 
     // Generate Boltcard deep links for NFC programming and reset
     let boltcard_program_deep_link = location.write_token.as_ref().map(|token| {
@@ -80,35 +84,15 @@ pub fn location_detail(
                 }
             }
 
-            // Next step banner for non-active locations (owner only, not for deactivated)
+            // Next step banner for setup phase (owner only, not for active or deactivated)
             @if is_owner && !location.is_active() && !location.is_deactivated() && !location.is_admin_deactivated() {
                 div class="mb-6 p-6" style="background: var(--highlight-glow); border: 3px solid var(--highlight);" {
-                    // Step 1: Upload photo
-                    @if photos.is_empty() {
-                        div class="flex flex-col md:flex-row md:items-center justify-between gap-4" {
-                            div class="flex items-center gap-4" {
-                                div class="w-12 h-12 flex items-center justify-center text-2xl font-black mono" style="background: var(--highlight); color: var(--text-inverse);" { "1" }
-                                div {
-                                    div class="text-xs text-highlight font-black mb-1" style="letter-spacing: 0.1em;" { "NEXT STEP" }
-                                    div class="text-xl font-black text-primary" { "UPLOAD A PHOTO" }
-                                    div class="text-sm text-secondary font-bold mt-1" { "Add at least one photo so people can find this location" }
-                                }
-                            }
-                            div class="flex gap-2" {
-                                button type="button" onclick="document.getElementById('photoInput').click()" class="btn-brutal-fill" style="background: var(--highlight); border-color: var(--highlight);" {
-                                    i class="fa-solid fa-camera mr-2" {}
-                                    "ADD PHOTO"
-                                }
-                                (delete_button(&location.id))
-                            }
-                        }
-                    }
-                    // Step 2: Program NFC - inline UI
-                    @else if location.is_created() {
+                    // Step 1: Program NFC - inline UI
+                    @if location.is_created() {
                         div class="space-y-4" {
                             div class="flex flex-col md:flex-row md:items-center justify-between gap-4" {
                                 div class="flex items-center gap-4" {
-                                    div class="w-12 h-12 flex items-center justify-center text-2xl font-black mono" style="background: var(--highlight); color: var(--text-inverse);" { "2" }
+                                    div class="w-12 h-12 flex items-center justify-center text-2xl font-black mono" style="background: var(--highlight); color: var(--text-inverse);" { "1" }
                                     div {
                                         div class="text-xs text-highlight font-black mb-1" style="letter-spacing: 0.1em;" { "NEXT STEP" }
                                         div class="text-xl font-black text-primary" { "PROGRAM NFC STICKER" }
@@ -141,11 +125,11 @@ pub fn location_detail(
                             }
                         }
                     }
-                    // Step 3: Waiting for activation scan
+                    // Step 2: Waiting for activation scan
                     @else {
                         div class="flex flex-col md:flex-row md:items-center justify-between gap-4" {
                             div class="flex items-center gap-4" {
-                                div class="w-12 h-12 flex items-center justify-center text-2xl font-black mono" style="background: var(--highlight); color: var(--text-inverse);" { "3" }
+                                div class="w-12 h-12 flex items-center justify-center text-2xl font-black mono" style="background: var(--highlight); color: var(--text-inverse);" { "2" }
                                 div {
                                     div class="text-xs text-highlight font-black mb-1" style="letter-spacing: 0.1em;" { "NEXT STEP" }
                                     div class="text-xl font-black text-primary" { "SCAN NFC TO ACTIVATE" }
@@ -159,6 +143,27 @@ pub fn location_detail(
                                 }
                                 (delete_button(&location.id))
                             }
+                        }
+                    }
+                }
+            }
+
+            // Photo nudge banner — shown to owner whenever no photos exist (setup or active)
+            @if photo_nudge_visible {
+                div class="mb-6 p-4" style="background: var(--bg-secondary); border: 3px dashed var(--accent-border);" {
+                    div class="flex flex-col md:flex-row md:items-center justify-between gap-4" {
+                        div class="flex items-center gap-3" {
+                            i class="fa-solid fa-camera text-2xl text-highlight orange" {}
+                            div {
+                                div class="text-lg font-black text-primary" { "ADD A PHOTO" }
+                                div class="text-sm text-secondary font-bold" {
+                                    "Help people find this location. You can do this anytime."
+                                }
+                            }
+                        }
+                        button type="button" onclick="document.getElementById('photoInput').click()" class="btn-brutal-orange" {
+                            i class="fa-solid fa-camera mr-2" {}
+                            "ADD PHOTO"
                         }
                     }
                 }

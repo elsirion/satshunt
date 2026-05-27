@@ -813,16 +813,6 @@ pub async fn upload_photo(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    // Check if location is active (cannot modify photos of active locations)
-    if location.is_active() {
-        tracing::warn!(
-            "User {} attempted to upload photo to active location {}",
-            auth.user_id,
-            location_id
-        );
-        return Err(StatusCode::FORBIDDEN);
-    }
-
     // Process uploaded photo
     while let Some(field) = multipart.next_field().await.map_err(|e| {
         tracing::error!("Failed to read multipart field: {}", e);
@@ -944,16 +934,6 @@ pub async fn delete_photo(
             auth.user_id,
             location.id,
             location.user_id
-        );
-        return Err(StatusCode::FORBIDDEN);
-    }
-
-    // Check if location is active (cannot modify photos of active locations)
-    if location.is_active() {
-        tracing::warn!(
-            "User {} attempted to delete photo from active location {}",
-            auth.user_id,
-            location.id
         );
         return Err(StatusCode::FORBIDDEN);
     }
