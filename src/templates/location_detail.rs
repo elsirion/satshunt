@@ -176,6 +176,13 @@ pub fn location_detail(
 
                     // Status badge and deactivate/reactivate controls
                     div class="flex items-center gap-2" {
+                        @if is_owner {
+                            a href=(format!("/locations/{}/edit", location.id))
+                                class="btn-brutal" style="border-color: var(--accent-muted); color: var(--text-muted); padding: 0.25rem 0.5rem;"
+                                title="Edit location" {
+                                i class="fa-solid fa-pen" {}
+                            }
+                        }
                         @if is_owner || is_admin {
                             @if location.is_active() {
                                 button

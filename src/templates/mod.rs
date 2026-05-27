@@ -58,7 +58,7 @@ pub use layout::{base, base_with_user};
 pub use location_detail::location_detail;
 pub use login::login;
 pub use map::map;
-pub use new_location::new_location;
+pub use new_location::{edit_location, new_location};
 pub use profile::profile;
 pub use register::register;
 pub use wallet::wallet;

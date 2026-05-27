@@ -678,6 +678,78 @@ pub async fn boltcard_keys(
 }
 
 /// Delete a non-active location (created or programmed only)
+#[derive(Debug, Deserialize)]
+pub struct UpdateLocationRequest {
+    pub name: String,
+    pub latitude: f64,
+    pub longitude: f64,
+    pub description: Option<String>,
+}
+
+pub async fn update_location(
+    State(state): State<Arc<AppState>>,
+    Path(location_id): Path<String>,
+    auth: AuthUser,
+    Json(payload): Json<UpdateLocationRequest>,
+) -> Result<StatusCode, StatusCode> {
+    let location = state
+        .db
+        .get_location(&location_id)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to get location: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?
+        .ok_or_else(|| {
+            tracing::warn!("Location not found: {}", location_id);
+            StatusCode::NOT_FOUND
+        })?;
+
+    if location.user_id != auth.user_id {
+        tracing::warn!(
+            "User {} attempted to edit location {} owned by {}",
+            auth.user_id,
+            location_id,
+            location.user_id
+        );
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    let name = payload.name.trim();
+    if name.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    if !(-90.0..=90.0).contains(&payload.latitude)
+        || !(-180.0..=180.0).contains(&payload.longitude)
+    {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let description = payload
+        .description
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+
+    state
+        .db
+        .update_location_details(
+            &location_id,
+            name,
+            payload.latitude,
+            payload.longitude,
+            description,
+        )
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to update location: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    tracing::info!("Location {} edited by user {}", location_id, auth.user_id);
+    Ok(StatusCode::NO_CONTENT)
+}
+
 pub async fn delete_location(
     State(state): State<Arc<AppState>>,
     Path(location_id): Path<String>,

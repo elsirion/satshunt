@@ -120,6 +120,32 @@ pub async fn new_location_page(user: CookieUser) -> Result<Html<String>, Respons
     Ok(Html(page.into_string()))
 }
 
+pub async fn edit_location_page(
+    user: CookieUser,
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Html<String>, Response> {
+    let username = user.ensure_registered_with_role(UserRole::Creator)?;
+
+    let location = state
+        .db
+        .get_location(&id)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to get location: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        })?
+        .ok_or_else(|| StatusCode::NOT_FOUND.into_response())?;
+
+    if location.user_id != user.user_id {
+        return Err(StatusCode::FORBIDDEN.into_response());
+    }
+
+    let content = templates::edit_location(&location);
+    let page = templates::base_with_user("Edit Location", content, username, user.role(), true);
+    Ok(Html(page.into_string()))
+}
+
 pub async fn location_detail_page(
     user: CookieUser,
     State(state): State<Arc<AppState>>,
