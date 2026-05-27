@@ -45,6 +45,27 @@ fn get_navbar_display_name(user: &CookieUser) -> String {
     user.display_name()
 }
 
+/// Render a styled 404 page wrapped in the standard layout.
+fn render_not_found(user: Option<&CookieUser>, message: Option<&str>) -> Response {
+    let content = templates::not_found(message);
+    let page = match user {
+        Some(u) => templates::base_with_user(
+            "Not Found",
+            content,
+            &get_navbar_display_name(u),
+            u.role(),
+            u.is_registered(),
+        ),
+        None => templates::base("Not Found", content),
+    };
+    (StatusCode::NOT_FOUND, Html(page.into_string())).into_response()
+}
+
+/// Fallback handler for unknown routes.
+pub async fn not_found_fallback(user: CookieUser) -> Response {
+    render_not_found(Some(&user), None)
+}
+
 pub async fn home_page(
     user: CookieUser,
     State(state): State<Arc<AppState>>,
@@ -120,25 +141,51 @@ pub async fn new_location_page(user: CookieUser) -> Result<Html<String>, Respons
     Ok(Html(page.into_string()))
 }
 
-pub async fn location_detail_page(
+pub async fn edit_location_page(
     user: CookieUser,
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
-    Query(params): Query<LocationDetailQuery>,
-) -> Result<Html<String>, StatusCode> {
+) -> Result<Html<String>, Response> {
+    let username = user.ensure_registered_with_role(UserRole::Creator)?;
+
     let location = state
         .db
         .get_location(&id)
         .await
         .map_err(|e| {
             tracing::error!("Failed to get location: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
         })?
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .ok_or_else(|| render_not_found(Some(&user), Some("This location doesn't exist.")))?;
+
+    if !location.can_be_edited_by(Some(&user.user_id), user.role()) {
+        return Err(StatusCode::FORBIDDEN.into_response());
+    }
+
+    let content = templates::edit_location(&location);
+    let page = templates::base_with_user("Edit Location", content, username, user.role(), true);
+    Ok(Html(page.into_string()))
+}
+
+pub async fn location_detail_page(
+    user: CookieUser,
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Query(params): Query<LocationDetailQuery>,
+) -> Result<Html<String>, Response> {
+    let location = state
+        .db
+        .get_location(&id)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to get location: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        })?
+        .ok_or_else(|| render_not_found(Some(&user), Some("This location doesn't exist.")))?;
 
     let photos = state.db.get_photos_for_location(&id).await.map_err(|e| {
         tracing::error!("Failed to get photos: {}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
+        StatusCode::INTERNAL_SERVER_ERROR.into_response()
     })?;
 
     let scans = state
@@ -147,7 +194,7 @@ pub async fn location_detail_page(
         .await
         .map_err(|e| {
             tracing::error!("Failed to get scans: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
         })?;
 
     // Get location's donation pool balance and donation history
@@ -207,10 +254,10 @@ pub async fn nfc_setup_page(
     user: CookieUser,
     State(state): State<Arc<AppState>>,
     Path(write_token): Path<String>,
-) -> Result<Redirect, StatusCode> {
+) -> Result<Redirect, Response> {
     let _username = user
         .ensure_registered()
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(|_| StatusCode::UNAUTHORIZED.into_response())?;
 
     // Get location by write token and redirect to location detail page
     let location = state
@@ -219,9 +266,14 @@ pub async fn nfc_setup_page(
         .await
         .map_err(|e| {
             tracing::error!("Failed to get location by write token: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
         })?
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .ok_or_else(|| {
+            render_not_found(
+                Some(&user),
+                Some("This setup link is invalid or has expired."),
+            )
+        })?;
 
     // Redirect to location detail page where NFC setup is now integrated
     Ok(Redirect::to(&format!("/locations/{}", location.id)))

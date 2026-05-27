@@ -108,6 +108,10 @@ async fn main() -> Result<()> {
         .route("/map", get(auth(handlers::map_page)))
         .route("/locations/new", get(auth(handlers::new_location_page)))
         .route("/locations/:id", get(auth(handlers::location_detail_page)))
+        .route(
+            "/locations/:id/edit",
+            get(auth(handlers::edit_location_page)),
+        )
         .route("/setup/:write_token", get(auth(handlers::nfc_setup_page)))
         .route("/donate", get(auth(handlers::donate_page)))
         .route("/withdraw/:location_id", get(auth(handlers::withdraw_page)))
@@ -178,10 +182,10 @@ async fn main() -> Result<()> {
         )
         // Boltcard NFC programming endpoint
         .route("/api/boltcard/:write_token", post(handlers::boltcard_keys))
-        // Delete location endpoint (non-active only)
+        // Delete or update location endpoint
         .route(
             "/api/locations/:location_id",
-            delete(handlers::delete_location),
+            delete(handlers::delete_location).put(handlers::update_location),
         )
         // Deactivate/reactivate location endpoints
         .route(
@@ -200,6 +204,8 @@ async fn main() -> Result<()> {
         // Static files
         .nest_service("/uploads", ServeDir::new(&uploads_dir))
         .nest_service("/static", ServeDir::new(&config.static_dir))
+        // 404 fallback for unknown routes
+        .fallback(auth(handlers::not_found_fallback))
         // State and middleware
         .with_state(app_state)
         .layer(session_layer)

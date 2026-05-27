@@ -309,12 +309,13 @@ async fn test_record_claim() {
         .await
         .unwrap();
 
-    // Record a scan
+    // Record a claim
     db.record_claim(&location.id, 10000, None).await.unwrap();
 
-    // Get stats to verify
-    let stats = db.get_stats().await.unwrap();
-    assert_eq!(stats.total_scans, 1);
+    // Verify the claim was recorded
+    let claims = db.get_claims_for_location(&location.id).await.unwrap();
+    assert_eq!(claims.len(), 1);
+    assert_eq!(claims[0].msats_claimed, 10000);
 }
 
 #[tokio::test]

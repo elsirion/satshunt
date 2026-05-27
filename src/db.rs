@@ -226,6 +226,27 @@ impl Database {
             .map_err(Into::into)
     }
 
+    pub async fn update_location_details(
+        &self,
+        id: &str,
+        name: &str,
+        latitude: f64,
+        longitude: f64,
+        description: Option<&str>,
+    ) -> Result<SqliteQueryResult> {
+        sqlx::query(
+            "UPDATE locations SET name = ?, latitude = ?, longitude = ?, description = ? WHERE id = ?",
+        )
+        .bind(name)
+        .bind(latitude)
+        .bind(longitude)
+        .bind(description)
+        .bind(id)
+        .execute(&self.pool)
+        .await
+        .map_err(Into::into)
+    }
+
     pub async fn delete_location(&self, id: &str, user_id: &str) -> Result<SqliteQueryResult> {
         sqlx::query("DELETE FROM locations WHERE id = ? AND user_id = ? AND status != 'active'")
             .bind(id)

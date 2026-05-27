@@ -678,6 +678,78 @@ pub async fn boltcard_keys(
 }
 
 /// Delete a non-active location (created or programmed only)
+#[derive(Debug, Deserialize)]
+pub struct UpdateLocationRequest {
+    pub name: String,
+    pub latitude: f64,
+    pub longitude: f64,
+    pub description: Option<String>,
+}
+
+pub async fn update_location(
+    State(state): State<Arc<AppState>>,
+    Path(location_id): Path<String>,
+    auth: AuthUser,
+    Json(payload): Json<UpdateLocationRequest>,
+) -> Result<StatusCode, StatusCode> {
+    let location = state
+        .db
+        .get_location(&location_id)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to get location: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?
+        .ok_or_else(|| {
+            tracing::warn!("Location not found: {}", location_id);
+            StatusCode::NOT_FOUND
+        })?;
+
+    if !location.can_be_edited_by(Some(&auth.user_id), auth.role) {
+        tracing::warn!(
+            "User {} with role {:?} attempted to edit location {} owned by {}",
+            auth.user_id,
+            auth.role,
+            location_id,
+            location.user_id
+        );
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    let name = payload.name.trim();
+    if name.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    if !(-90.0..=90.0).contains(&payload.latitude) || !(-180.0..=180.0).contains(&payload.longitude)
+    {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let description = payload
+        .description
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+
+    state
+        .db
+        .update_location_details(
+            &location_id,
+            name,
+            payload.latitude,
+            payload.longitude,
+            description,
+        )
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to update location: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    tracing::info!("Location {} edited by user {}", location_id, auth.user_id);
+    Ok(StatusCode::NO_CONTENT)
+}
+
 pub async fn delete_location(
     State(state): State<Arc<AppState>>,
     Path(location_id): Path<String>,
@@ -813,16 +885,6 @@ pub async fn upload_photo(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    // Check if location is active (cannot modify photos of active locations)
-    if location.is_active() {
-        tracing::warn!(
-            "User {} attempted to upload photo to active location {}",
-            auth.user_id,
-            location_id
-        );
-        return Err(StatusCode::FORBIDDEN);
-    }
-
     // Process uploaded photo
     while let Some(field) = multipart.next_field().await.map_err(|e| {
         tracing::error!("Failed to read multipart field: {}", e);
@@ -944,16 +1006,6 @@ pub async fn delete_photo(
             auth.user_id,
             location.id,
             location.user_id
-        );
-        return Err(StatusCode::FORBIDDEN);
-    }
-
-    // Check if location is active (cannot modify photos of active locations)
-    if location.is_active() {
-        tracing::warn!(
-            "User {} attempted to delete photo from active location {}",
-            auth.user_id,
-            location.id
         );
         return Err(StatusCode::FORBIDDEN);
     }
