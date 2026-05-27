@@ -108,7 +108,10 @@ async fn main() -> Result<()> {
         .route("/map", get(auth(handlers::map_page)))
         .route("/locations/new", get(auth(handlers::new_location_page)))
         .route("/locations/:id", get(auth(handlers::location_detail_page)))
-        .route("/locations/:id/edit", get(auth(handlers::edit_location_page)))
+        .route(
+            "/locations/:id/edit",
+            get(auth(handlers::edit_location_page)),
+        )
         .route("/setup/:write_token", get(auth(handlers::nfc_setup_page)))
         .route("/donate", get(auth(handlers::donate_page)))
         .route("/withdraw/:location_id", get(auth(handlers::withdraw_page)))

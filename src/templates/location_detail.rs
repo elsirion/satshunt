@@ -33,6 +33,7 @@ pub fn location_detail(
         .map(|id| id == location.user_id)
         .unwrap_or(false);
     let is_admin = current_user_role == UserRole::Admin;
+    let can_edit_location = location.can_be_edited_by(current_user_id, current_user_role);
     let can_manage_photos = is_owner;
     let photo_nudge_visible = is_owner
         && photos.is_empty()
@@ -176,7 +177,7 @@ pub fn location_detail(
 
                     // Status badge and deactivate/reactivate controls
                     div class="flex items-center gap-2" {
-                        @if is_owner {
+                        @if can_edit_location {
                             a href=(format!("/locations/{}/edit", location.id))
                                 class="btn-brutal" style="border-color: var(--accent-muted); color: var(--text-muted); padding: 0.25rem 0.5rem;"
                                 title="Edit location" {

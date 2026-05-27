@@ -158,7 +158,7 @@ pub async fn edit_location_page(
         })?
         .ok_or_else(|| render_not_found(Some(&user), Some("This location doesn't exist.")))?;
 
-    if location.user_id != user.user_id {
+    if !location.can_be_edited_by(Some(&user.user_id), user.role()) {
         return Err(StatusCode::FORBIDDEN.into_response());
     }
 
@@ -268,7 +268,12 @@ pub async fn nfc_setup_page(
             tracing::error!("Failed to get location by write token: {}", e);
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
         })?
-        .ok_or_else(|| render_not_found(Some(&user), Some("This setup link is invalid or has expired.")))?;
+        .ok_or_else(|| {
+            render_not_found(
+                Some(&user),
+                Some("This setup link is invalid or has expired."),
+            )
+        })?;
 
     // Redirect to location detail page where NFC setup is now integrated
     Ok(Redirect::to(&format!("/locations/{}", location.id)))

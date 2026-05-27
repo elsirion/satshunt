@@ -222,6 +222,10 @@ impl Location {
         self.is_deactivated()
     }
 
+    pub fn can_be_edited_by(&self, user_id: Option<&str>, role: UserRole) -> bool {
+        user_id.map(|id| id == self.user_id).unwrap_or(false) || role == UserRole::Admin
+    }
+
     // Note: last_activity_at(), current_sats(), withdrawable_msats(), withdrawable_sats() removed
     // Balance is now computed on-demand via balance::compute_balance_msats()
 }
@@ -752,6 +756,16 @@ mod tests {
         assert!(location.is_admin_deactivated());
         assert!(!location.is_visible());
         assert!(!location.can_creator_reactivate());
+    }
+
+    #[test]
+    fn test_location_edit_permission_allows_owner_or_admin() {
+        let location = make_test_location(1000);
+
+        assert!(location.can_be_edited_by(Some("user-id"), UserRole::Creator));
+        assert!(location.can_be_edited_by(Some("admin-id"), UserRole::Admin));
+        assert!(!location.can_be_edited_by(Some("other-user-id"), UserRole::Creator));
+        assert!(!location.can_be_edited_by(None, UserRole::User));
     }
 
     #[test]

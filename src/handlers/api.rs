@@ -705,10 +705,11 @@ pub async fn update_location(
             StatusCode::NOT_FOUND
         })?;
 
-    if location.user_id != auth.user_id {
+    if !location.can_be_edited_by(Some(&auth.user_id), auth.role) {
         tracing::warn!(
-            "User {} attempted to edit location {} owned by {}",
+            "User {} with role {:?} attempted to edit location {} owned by {}",
             auth.user_id,
+            auth.role,
             location_id,
             location.user_id
         );
@@ -719,8 +720,7 @@ pub async fn update_location(
     if name.is_empty() {
         return Err(StatusCode::BAD_REQUEST);
     }
-    if !(-90.0..=90.0).contains(&payload.latitude)
-        || !(-180.0..=180.0).contains(&payload.longitude)
+    if !(-90.0..=90.0).contains(&payload.latitude) || !(-180.0..=180.0).contains(&payload.longitude)
     {
         return Err(StatusCode::BAD_REQUEST);
     }
