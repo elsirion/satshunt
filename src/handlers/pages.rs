@@ -112,11 +112,12 @@ pub async fn map_page(
             .get_location_donation_pool_balance(&location.id)
             .await
             .unwrap_or(0);
+        let effective_config = location.effective_balance_config(&state.balance_config);
         let balance_msats = compute_balance_msats(
             pool_msats,
             location.last_withdraw_at,
             location.created_at,
-            &state.balance_config,
+            &effective_config,
         );
         location_balances.push((location, balance_msats / 1000, pool_msats / 1000));
     }
@@ -162,7 +163,7 @@ pub async fn edit_location_page(
         return Err(StatusCode::FORBIDDEN.into_response());
     }
 
-    let content = templates::edit_location(&location);
+    let content = templates::edit_location(&location, &state.balance_config);
     let page = templates::base_with_user("Edit Location", content, username, user.role(), true);
     Ok(Html(page.into_string()))
 }
@@ -209,12 +210,13 @@ pub async fn location_detail_page(
         .await
         .unwrap_or_default();
 
-    // Compute current balance
+    // Compute current balance using any per-location overrides
+    let effective_config = location.effective_balance_config(&state.balance_config);
     let available_msats = compute_balance_msats(
         pool_msats,
         location.last_withdraw_at,
         location.created_at,
-        &state.balance_config,
+        &effective_config,
     );
 
     // Get NFC card for wipe QR code (for owner/admin)
@@ -532,11 +534,12 @@ pub async fn profile_page(
             .get_location_donation_pool_balance(&location.id)
             .await
             .unwrap_or(0);
+        let effective_config = location.effective_balance_config(&state.balance_config);
         let balance_msats = compute_balance_msats(
             pool_msats,
             location.last_withdraw_at,
             location.created_at,
-            &state.balance_config,
+            &effective_config,
         );
         location_balances.push((location, balance_msats / 1000, pool_msats / 1000));
     }
@@ -588,11 +591,12 @@ pub async fn withdraw_page(
         .get_location_donation_pool_balance(&location_id)
         .await
         .unwrap_or(0);
+    let effective_config = location.effective_balance_config(&state.balance_config);
     let available_msats = compute_balance_msats(
         pool_msats,
         location.last_withdraw_at,
         location.created_at,
-        &state.balance_config,
+        &effective_config,
     );
     let available_sats = available_msats / 1000;
 
@@ -920,11 +924,12 @@ pub async fn admin_locations_page(
             .get_location_donation_pool_balance(&location.id)
             .await
             .unwrap_or(0);
+        let effective_config = location.effective_balance_config(&state.balance_config);
         let balance_msats = compute_balance_msats(
             pool_msats,
             location.last_withdraw_at,
             location.created_at,
-            &state.balance_config,
+            &effective_config,
         );
         location_balances.push((location, balance_msats / 1000, pool_msats / 1000));
     }

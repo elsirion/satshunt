@@ -1,15 +1,32 @@
+use crate::balance::BalanceConfig;
 use crate::models::Location;
 use maud::{html, Markup, PreEscaped};
 
+const SECS_PER_MINUTE: i64 = 60;
+const SECS_PER_HOUR: i64 = 60 * 60;
+const SECS_PER_DAY: i64 = 24 * 60 * 60;
+
 pub fn new_location() -> Markup {
-    location_form(None)
+    location_form(None, None)
 }
 
-pub fn edit_location(location: &Location) -> Markup {
-    location_form(Some(location))
+pub fn edit_location(location: &Location, defaults: &BalanceConfig) -> Markup {
+    location_form(Some(location), Some(defaults))
 }
 
-fn location_form(existing: Option<&Location>) -> Markup {
+/// Pick the largest whole unit that exactly represents the given seconds.
+/// Falls back to minutes if no whole unit fits cleanly.
+fn split_secs(secs: i64) -> (i64, &'static str) {
+    if secs > 0 && secs % SECS_PER_DAY == 0 {
+        (secs / SECS_PER_DAY, "days")
+    } else if secs > 0 && secs % SECS_PER_HOUR == 0 {
+        (secs / SECS_PER_HOUR, "hours")
+    } else {
+        ((secs / SECS_PER_MINUTE).max(1), "minutes")
+    }
+}
+
+fn location_form(existing: Option<&Location>, defaults: Option<&BalanceConfig>) -> Markup {
     let is_edit = existing.is_some();
     let heading_icon = if is_edit { "fa-pen" } else { "fa-plus" };
     let heading = if is_edit {
@@ -130,6 +147,11 @@ fn location_form(existing: Option<&Location>) -> Markup {
             }
         }
 
+        // Payout schedule overrides (edit only)
+        @if let (Some(location), Some(defaults)) = (existing, defaults) {
+            (payout_overrides_form(location, defaults))
+        }
+
         // JavaScript for map and GPS
         (PreEscaped(format!(r#"
         <script>
@@ -237,5 +259,181 @@ fn location_form(existing: Option<&Location>) -> Markup {
             method = method,
             redirect = redirect_js,
         )))
+    }
+}
+
+/// Render the payout-overrides editor. Only shown on the edit page so the setup
+/// flow stays simple — overrides are an advanced, after-the-fact tweak.
+///
+/// A single toggle controls both fields at once: either this location overrides
+/// the payout schedule entirely, or it inherits the global defaults entirely.
+fn payout_overrides_form(location: &Location, defaults: &BalanceConfig) -> Markup {
+    let is_overridden =
+        location.time_to_full_secs.is_some() || location.max_fill_percentage.is_some();
+
+    let (time_value, time_unit) = location
+        .time_to_full_secs
+        .map(split_secs)
+        .unwrap_or_else(|| split_secs(defaults.time_to_full_secs));
+
+    // Percentage stored 0.0–1.0; UI uses 0–100.
+    let pct_value = location
+        .max_fill_percentage
+        .unwrap_or(defaults.max_fill_percentage)
+        * 100.0;
+
+    let (default_time_value, default_time_unit) = split_secs(defaults.time_to_full_secs);
+    let default_pct = defaults.max_fill_percentage * 100.0;
+    let default_summary = format!(
+        "Defaults to {} {} to full and {}% of the donation pool.",
+        default_time_value, default_time_unit, default_pct
+    );
+
+    html! {
+        div class="card-brutal-inset mt-8" {
+            h2 class="heading-breaker" {
+                i class="fa-solid fa-sliders mr-2" {}
+                "PAYOUT SCHEDULE"
+            }
+
+            p class="text-secondary text-sm font-bold mt-6 mb-4" {
+                "Override how fast this location fills back up and what share of its donation pool a single claim can take. "
+                (default_summary)
+            }
+
+            form id="payoutForm" class="space-y-6 mt-4" {
+
+                // Single override toggle for both fields
+                div {
+                    label class="flex items-center gap-2 font-bold text-primary mb-2 cursor-pointer" {
+                        input type="checkbox" id="payoutOverrideEnabled"
+                            checked[is_overridden];
+                        span { "OVERRIDE PAYOUT SCHEDULE FOR THIS LOCATION" }
+                    }
+                }
+
+                // Time to full
+                div {
+                    label class="label-brutal mb-2 block" for="timeValue" { "TIME TO FULL" }
+                    div class="grid grid-cols-3 gap-2" {
+                        input type="number" id="timeValue" min="1" step="1"
+                            class="input-brutal-box col-span-2"
+                            value=(time_value)
+                            disabled[!is_overridden];
+                        select id="timeUnit"
+                            class="input-brutal-box"
+                            disabled[!is_overridden] {
+                            option value="minutes" selected[time_unit == "minutes"] { "Minutes" }
+                            option value="hours" selected[time_unit == "hours"] { "Hours" }
+                            option value="days" selected[time_unit == "days"] { "Days" }
+                        }
+                    }
+                }
+
+                // Max fill percentage
+                div {
+                    label class="label-brutal mb-2 block" for="pctValue" { "MAX % OF POOL PER FILL" }
+                    div class="flex items-center gap-2" {
+                        input type="number" id="pctValue" min="0.01" max="100" step="0.01"
+                            class="input-brutal-box flex-1"
+                            value=(format!("{}", pct_value))
+                            disabled[!is_overridden];
+                        span class="font-black text-primary" { "%" }
+                    }
+                }
+
+                div id="payoutMessage" class="text-sm font-bold hidden" {}
+
+                button type="submit" class="w-full btn-brutal-fill" {
+                    "SAVE PAYOUT SETTINGS"
+                }
+            }
+        }
+
+        (PreEscaped(format!(r#"
+        <script>
+            (function() {{
+                const SECS_PER_MINUTE = 60;
+                const SECS_PER_HOUR = 60 * 60;
+                const SECS_PER_DAY = 24 * 60 * 60;
+
+                const form = document.getElementById('payoutForm');
+                const overrideEnabled = document.getElementById('payoutOverrideEnabled');
+                const timeValue = document.getElementById('timeValue');
+                const timeUnit = document.getElementById('timeUnit');
+                const pctValue = document.getElementById('pctValue');
+                const message = document.getElementById('payoutMessage');
+
+                function syncDisabled() {{
+                    const enabled = overrideEnabled.checked;
+                    timeValue.disabled = !enabled;
+                    timeUnit.disabled = !enabled;
+                    pctValue.disabled = !enabled;
+                }}
+
+                overrideEnabled.addEventListener('change', syncDisabled);
+
+                function toSeconds(value, unit) {{
+                    switch (unit) {{
+                        case 'minutes': return Math.round(value * SECS_PER_MINUTE);
+                        case 'hours': return Math.round(value * SECS_PER_HOUR);
+                        case 'days': return Math.round(value * SECS_PER_DAY);
+                        default: return Math.round(value);
+                    }}
+                }}
+
+                function showMessage(text, ok) {{
+                    message.textContent = text;
+                    message.classList.remove('hidden');
+                    message.style.color = ok ? 'var(--highlight)' : 'var(--text-primary)';
+                }}
+
+                form.addEventListener('submit', async function(e) {{
+                    e.preventDefault();
+
+                    let timeSecs = null;
+                    let maxPct = null;
+
+                    if (overrideEnabled.checked) {{
+                        const rawTime = parseFloat(timeValue.value);
+                        if (!isFinite(rawTime) || rawTime <= 0) {{
+                            showMessage('Enter a positive time-to-full value.', false);
+                            return;
+                        }}
+                        timeSecs = toSeconds(rawTime, timeUnit.value);
+
+                        const rawPct = parseFloat(pctValue.value);
+                        if (!isFinite(rawPct) || rawPct <= 0 || rawPct > 100) {{
+                            showMessage('Enter a percentage between 0 and 100.', false);
+                            return;
+                        }}
+                        maxPct = rawPct / 100.0;
+                    }}
+
+                    try {{
+                        const response = await fetch('/api/locations/{location_id}/payout', {{
+                            method: 'POST',
+                            headers: {{ 'Content-Type': 'application/json' }},
+                            body: JSON.stringify({{
+                                time_to_full_secs: timeSecs,
+                                max_fill_percentage: maxPct,
+                            }}),
+                        }});
+
+                        if (response.ok) {{
+                            showMessage('Payout settings saved.', true);
+                        }} else {{
+                            const text = await response.text();
+                            showMessage('Failed to save: ' + (text || response.status), false);
+                        }}
+                    }} catch (err) {{
+                        showMessage('Failed to save: ' + err.message, false);
+                    }}
+                }});
+
+                syncDisabled();
+            }})();
+        </script>
+        "#, location_id = location.id)))
     }
 }

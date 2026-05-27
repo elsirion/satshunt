@@ -79,7 +79,7 @@ async fn main() -> Result<()> {
 
     // Create balance config for computed balance calculations
     let balance_config = BalanceConfig {
-        time_to_full_days: config.time_to_full_days,
+        time_to_full_secs: (config.time_to_full_days as i64) * 24 * 60 * 60,
         max_fill_percentage: config.max_fill_percentage,
     };
 
@@ -187,6 +187,11 @@ async fn main() -> Result<()> {
             "/api/locations/:location_id",
             delete(handlers::delete_location).put(handlers::update_location),
         )
+        // Update per-location payout schedule overrides
+        .route(
+            "/api/locations/:location_id/payout",
+            post(handlers::update_location_payout),
+        )
         // Deactivate/reactivate location endpoints
         .route(
             "/api/locations/:location_id/deactivate",
@@ -219,7 +224,7 @@ async fn main() -> Result<()> {
     tracing::info!("📍 Base URL: {}", base_url);
     tracing::info!(
         "⚙️  Balance config: {} days to full, {}% max fill",
-        balance_config.time_to_full_days,
+        balance_config.time_to_full_secs / (24 * 60 * 60),
         balance_config.max_fill_percentage * 100.0
     );
 

@@ -1,10 +1,12 @@
 use chrono::{DateTime, Utc};
 
+const SECS_PER_DAY: i64 = 24 * 60 * 60;
+
 /// Configuration for balance calculation
 #[derive(Debug, Clone)]
 pub struct BalanceConfig {
-    /// Time to fill from 0 to max_fill (in days)
-    pub time_to_full_days: u64,
+    /// Time to fill from 0 to max_fill (in seconds)
+    pub time_to_full_secs: i64,
     /// Maximum percentage of pool that can fill a location (e.g., 0.1 = 10%)
     pub max_fill_percentage: f64,
 }
@@ -12,8 +14,22 @@ pub struct BalanceConfig {
 impl Default for BalanceConfig {
     fn default() -> Self {
         Self {
-            time_to_full_days: 21,
+            time_to_full_secs: 21 * SECS_PER_DAY,
             max_fill_percentage: 0.1,
+        }
+    }
+}
+
+impl BalanceConfig {
+    /// Apply optional per-location overrides on top of this default config.
+    pub fn with_overrides(
+        &self,
+        time_to_full_secs: Option<i64>,
+        max_fill_percentage: Option<f64>,
+    ) -> Self {
+        Self {
+            time_to_full_secs: time_to_full_secs.unwrap_or(self.time_to_full_secs),
+            max_fill_percentage: max_fill_percentage.unwrap_or(self.max_fill_percentage),
         }
     }
 }
@@ -44,8 +60,8 @@ pub fn compute_balance_msats(
     let elapsed = now.signed_duration_since(reference_time);
     let elapsed_secs = elapsed.num_seconds().max(0) as f64;
 
-    // Time to full in seconds
-    let time_to_full_secs = (config.time_to_full_days * 24 * 60 * 60) as f64;
+    // Time to full in seconds (guard against zero/negative to avoid division by zero)
+    let time_to_full_secs = config.time_to_full_secs.max(1) as f64;
 
     // Fill ratio (0.0 to 1.0)
     let fill_ratio = (elapsed_secs / time_to_full_secs).min(1.0);
@@ -64,7 +80,7 @@ mod tests {
 
     fn test_config() -> BalanceConfig {
         BalanceConfig {
-            time_to_full_days: 21,
+            time_to_full_secs: 21 * SECS_PER_DAY,
             max_fill_percentage: 0.1,
         }
     }
@@ -98,8 +114,7 @@ mod tests {
     fn test_half_time_gives_half_fill() {
         let config = test_config();
         let now = Utc::now();
-        let created_at = now
-            - Duration::milliseconds((config.time_to_full_days as i64 * 24 * 60 * 60 * 1000) / 2);
+        let created_at = now - Duration::milliseconds(config.time_to_full_secs * 1000 / 2);
 
         let pool_msats = 1_000_000_000; // 1M sats = 1B msats
         let result = compute_balance_msats(pool_msats, None, created_at, &config);
@@ -113,7 +128,7 @@ mod tests {
     fn test_full_time_gives_max_fill() {
         let config = test_config();
         let now = Utc::now();
-        let created_at = now - Duration::days(config.time_to_full_days as i64);
+        let created_at = now - Duration::seconds(config.time_to_full_secs);
 
         let pool_msats = 1_000_000_000; // 1M sats
         let result = compute_balance_msats(pool_msats, None, created_at, &config);
@@ -127,7 +142,7 @@ mod tests {
     fn test_over_time_caps_at_max_fill() {
         let config = test_config();
         let now = Utc::now();
-        let created_at = now - Duration::days(config.time_to_full_days as i64 * 2); // Double the time
+        let created_at = now - Duration::seconds(config.time_to_full_secs * 2); // Double the time
 
         let pool_msats = 1_000_000_000;
         let result = compute_balance_msats(pool_msats, None, created_at, &config);
@@ -169,7 +184,7 @@ mod tests {
     #[test]
     fn test_different_fill_percentage() {
         let config = BalanceConfig {
-            time_to_full_days: 21,
+            time_to_full_secs: 21 * SECS_PER_DAY,
             max_fill_percentage: 0.05, // 5%
         };
         let now = Utc::now();
@@ -186,7 +201,7 @@ mod tests {
     #[test]
     fn test_different_time_to_full() {
         let config = BalanceConfig {
-            time_to_full_days: 7, // 1 week
+            time_to_full_secs: 7 * SECS_PER_DAY, // 1 week
             max_fill_percentage: 0.1,
         };
         let now = Utc::now();
@@ -198,5 +213,38 @@ mod tests {
         // Should be at max after 7 days
         let expected = (pool_msats as f64 * 0.1) as i64;
         assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_sub_day_time_to_full() {
+        // 1 hour to full
+        let config = BalanceConfig {
+            time_to_full_secs: 60 * 60,
+            max_fill_percentage: 0.1,
+        };
+        let now = Utc::now();
+        let created_at = now - Duration::seconds(60 * 60); // 1 hour ago
+
+        let pool_msats = 1_000_000_000;
+        let result = compute_balance_msats(pool_msats, None, created_at, &config);
+
+        let expected = (pool_msats as f64 * 0.1) as i64;
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_with_overrides_falls_back_to_defaults() {
+        let base = BalanceConfig::default();
+        let overridden = base.with_overrides(None, None);
+        assert_eq!(overridden.time_to_full_secs, base.time_to_full_secs);
+        assert_eq!(overridden.max_fill_percentage, base.max_fill_percentage);
+    }
+
+    #[test]
+    fn test_with_overrides_applies_per_location_values() {
+        let base = BalanceConfig::default();
+        let overridden = base.with_overrides(Some(3600), Some(0.25));
+        assert_eq!(overridden.time_to_full_secs, 3600);
+        assert_eq!(overridden.max_fill_percentage, 0.25);
     }
 }
