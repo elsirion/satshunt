@@ -750,6 +750,87 @@ pub async fn update_location(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// Payload for updating a location's payout schedule overrides.
+///
+/// Either field can be `null` to clear the override and fall back to the global default.
+#[derive(Debug, Deserialize)]
+pub struct UpdateLocationPayoutRequest {
+    /// Time to fill from empty to max, in seconds. `null` to use the global default.
+    pub time_to_full_secs: Option<i64>,
+    /// Maximum percentage of the pool that can fill the location (0.0–1.0).
+    /// `null` to use the global default.
+    pub max_fill_percentage: Option<f64>,
+}
+
+/// Update a location's payout schedule overrides.
+///
+/// Allows the owner or an admin to override the time-to-full and max-fill percentage
+/// on a per-location basis. NULL values fall back to the global defaults.
+pub async fn update_location_payout(
+    State(state): State<Arc<AppState>>,
+    Path(location_id): Path<String>,
+    auth: AuthUser,
+    Json(payload): Json<UpdateLocationPayoutRequest>,
+) -> Result<StatusCode, StatusCode> {
+    let location = state
+        .db
+        .get_location(&location_id)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to get location: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?
+        .ok_or_else(|| {
+            tracing::warn!("Location not found: {}", location_id);
+            StatusCode::NOT_FOUND
+        })?;
+
+    if !location.can_be_edited_by(Some(&auth.user_id), auth.role) {
+        tracing::warn!(
+            "User {} with role {:?} attempted to edit payout for location {} owned by {}",
+            auth.user_id,
+            auth.role,
+            location_id,
+            location.user_id
+        );
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    if let Some(secs) = payload.time_to_full_secs {
+        if secs <= 0 {
+            return Err(StatusCode::BAD_REQUEST);
+        }
+    }
+    if let Some(pct) = payload.max_fill_percentage {
+        // Stored as a fraction 0.0..=1.0; require a positive value and cap at 100%.
+        if !pct.is_finite() || pct <= 0.0 || pct > 1.0 {
+            return Err(StatusCode::BAD_REQUEST);
+        }
+    }
+
+    state
+        .db
+        .update_location_payout(
+            &location_id,
+            payload.time_to_full_secs,
+            payload.max_fill_percentage,
+        )
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to update location payout: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    tracing::info!(
+        "Location {} payout overrides updated by user {} (time_to_full_secs={:?}, max_fill_percentage={:?})",
+        location_id,
+        auth.user_id,
+        payload.time_to_full_secs,
+        payload.max_fill_percentage,
+    );
+    Ok(StatusCode::NO_CONTENT)
+}
+
 pub async fn delete_location(
     State(state): State<Arc<AppState>>,
     Path(location_id): Path<String>,
@@ -1134,11 +1215,12 @@ async fn verify_and_prepare_withdrawal(
             WithdrawResponse::error("Failed to check balance.")
         })?;
 
+    let effective_config = location.effective_balance_config(&state.balance_config);
     let withdrawable_msats = crate::balance::compute_balance_msats(
         pool_balance_msats,
         location.last_withdraw_at,
         location.created_at,
-        &state.balance_config,
+        &effective_config,
     );
 
     if withdrawable_msats <= 0 {

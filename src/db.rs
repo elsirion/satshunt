@@ -247,6 +247,25 @@ impl Database {
         .map_err(Into::into)
     }
 
+    /// Set or clear a location's payout schedule overrides.
+    /// Passing `None` for a field stores NULL, meaning that field falls back to the global default.
+    pub async fn update_location_payout(
+        &self,
+        id: &str,
+        time_to_full_secs: Option<i64>,
+        max_fill_percentage: Option<f64>,
+    ) -> Result<SqliteQueryResult> {
+        sqlx::query(
+            "UPDATE locations SET time_to_full_secs = ?, max_fill_percentage = ? WHERE id = ?",
+        )
+        .bind(time_to_full_secs)
+        .bind(max_fill_percentage)
+        .bind(id)
+        .execute(&self.pool)
+        .await
+        .map_err(Into::into)
+    }
+
     pub async fn delete_location(&self, id: &str, user_id: &str) -> Result<SqliteQueryResult> {
         sqlx::query("DELETE FROM locations WHERE id = ? AND user_id = ? AND status != 'active'")
             .bind(id)
@@ -779,11 +798,12 @@ impl Database {
 
         let pool_balance_msats = donations.0 - claimed.0;
 
+        let effective_config = location.effective_balance_config(balance_config);
         let claimable_msats = compute_balance_msats(
             pool_balance_msats,
             location.last_withdraw_at,
             location.created_at,
-            balance_config,
+            &effective_config,
         );
 
         if claimable_msats <= 0 {
@@ -1043,11 +1063,12 @@ impl Database {
         let pool_balance_msats = donations.0 - claimed.0;
 
         // Compute the available balance
+        let effective_config = location.effective_balance_config(balance_config);
         let withdrawable_msats = compute_balance_msats(
             pool_balance_msats,
             location.last_withdraw_at,
             location.created_at,
-            balance_config,
+            &effective_config,
         );
 
         if withdrawable_msats <= 0 {
@@ -1250,11 +1271,12 @@ impl Database {
         let pool_balance_msats = donations.0 - claimed.0;
 
         // Compute the available balance
+        let effective_config = location.effective_balance_config(balance_config);
         let collected_msats = compute_balance_msats(
             pool_balance_msats,
             location.last_withdraw_at,
             location.created_at,
-            balance_config,
+            &effective_config,
         );
 
         if collected_msats <= 0 {

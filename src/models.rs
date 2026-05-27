@@ -1,3 +1,4 @@
+use crate::balance::BalanceConfig;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
@@ -188,6 +189,10 @@ pub struct Location {
     pub write_token_created_at: Option<DateTime<Utc>>,
     pub user_id: String,
     pub status: String, // 'created', 'programmed', 'active'
+    /// Optional per-location override for time-to-full (seconds). NULL = use global default.
+    pub time_to_full_secs: Option<i64>,
+    /// Optional per-location override for max-fill percentage (0.0–1.0). NULL = use global default.
+    pub max_fill_percentage: Option<f64>,
 }
 
 impl Location {
@@ -224,6 +229,12 @@ impl Location {
 
     pub fn can_be_edited_by(&self, user_id: Option<&str>, role: UserRole) -> bool {
         user_id.map(|id| id == self.user_id).unwrap_or(false) || role == UserRole::Admin
+    }
+
+    /// Build the balance config for this location, applying any per-location overrides
+    /// on top of the global defaults.
+    pub fn effective_balance_config(&self, global: &BalanceConfig) -> BalanceConfig {
+        global.with_overrides(self.time_to_full_secs, self.max_fill_percentage)
     }
 
     // Note: last_activity_at(), current_sats(), withdrawable_msats(), withdrawable_sats() removed
@@ -705,6 +716,8 @@ mod tests {
             write_token_created_at: None,
             user_id: "user-id".to_string(),
             status: "active".to_string(),
+            time_to_full_secs: None,
+            max_fill_percentage: None,
         }
     }
 
