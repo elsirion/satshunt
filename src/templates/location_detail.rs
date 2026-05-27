@@ -752,7 +752,7 @@ fn delete_button(location_id: &str) -> Markup {
             onclick={
                 "if(confirm('DELETE THIS LOCATION?')) { "
                 "fetch('/api/locations/" (location_id) "', { method: 'DELETE' }) "
-                ".then(r => r.ok ? window.location.href='/profile' : alert('FAILED')) "
+                ".then(r => r.ok ? window.location.href='/locations' : alert('FAILED')) "
                 "}"
             }
             class="btn-brutal" style="border-color: var(--accent-muted); color: var(--text-muted);" {
